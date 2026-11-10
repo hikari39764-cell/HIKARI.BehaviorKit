@@ -77,6 +77,8 @@ RunView InspectRun(const OpenTree& tree, TreeEditor& editor) {
     }
     // 読めない樹（編訳の誤り）の角色も、選んだ樹を使っていれば一覧に出す。
     for (ITreeUser* user : BehaviorLibrary::Get().Users()) {
+        // 断点がある間は、Play 中の角色全部の状態の変化を見る（別の樹の断点でも当たるように）。
+        editor.Observe(*user);
         if (RunsTree(*user, tree.guid)) {
             view.users.push_back({user, Activity(user->Instance()), user->Instance().HasStarted()});
         }

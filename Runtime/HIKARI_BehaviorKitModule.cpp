@@ -184,6 +184,9 @@ public:
     bool Progress(uint32_t node, NodeProgress& out) override {
         return instance_.Progress(node, TickHost{world_, object_, 0.0f}, out);
     }
+#if !defined(HIKARI_SHIPPING)
+    void SetObserver(NodeStateObserver observer, void* user) override { instance_.SetObserver(observer, user); }
+#endif
     std::string_view NameOf(GameProjectObjectHandle object) const noexcept override {
         return world_.IsValid() ? world_.FindObject(object).GetName() : std::string_view{};
     }

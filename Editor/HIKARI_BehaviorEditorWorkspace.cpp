@@ -101,6 +101,22 @@ void TreeWorkspace::Draw(EditorWorkspaceHostContext& context) {
         DrawTabs(ui);
         tree = editor.Current();
         run = tree != nullptr ? InspectRun(*tree, editor) : RunView{};
+        // 断点に当たった：推進の外（ここ）で Play を一時停止し、その節を開いて見せる。
+        if (TreeEditor::Breakpoint hit{}; editor.TakeHit(hit)) {
+            std::string data{};
+            std::string message{};
+            editor.RunOperation("play.pause", R"({"paused": true})", data, message);
+            if (tree == nullptr || tree->guid != hit.guid) {
+                Open(hit.guid);
+                tree = editor.Current();
+            }
+            if (tree != nullptr && tree->guid == hit.guid) {
+                tree->Select({hit.node});
+                findFocus_ = hit.node;
+                run = InspectRun(*tree, editor);
+            }
+            status_ = {"Paused at a breakpoint."};
+        }
         UpdateLiveNotice(tree);
         if (run.watchReplaced) {
             status_ = {"The watched character is gone. Now watching {0}.", {std::string(run.user->OwnerName())}};

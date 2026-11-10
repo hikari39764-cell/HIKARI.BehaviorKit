@@ -105,6 +105,10 @@ struct TickHost {
     void* writeOwnerVariableUser = nullptr;
 };
 
+// 節を進めた度と打ち切った時に、前と後の状態を知らせる（編集器の断点と時間線。発行版の庫には無い）。node は編訳済みの樹の番号。
+using NodeStateObserver = void (*)(void* user, const class TreeInstance& instance, uint32_t node, NodeState from,
+                                   NodeState to);
+
 class TreeInstance {
 public:
     // 樹を割り当てて最初の状態にする（黒板は樹の初期値）。走っている節の stop は呼ばない：先に Abort する。
@@ -135,6 +139,13 @@ public:
     }
     // 割り当ててから一度でも進めた。
     bool HasStarted() const noexcept { return tick_ != 0u; }
+#if !defined(HIKARI_SHIPPING)
+    // 状態の変化を observer に知らせる（nullptr で外す）。付けていなければ推進に手間は増えない。
+    void SetObserver(NodeStateObserver observer, void* user) noexcept {
+        observer_ = observer;
+        observerUser_ = user;
+    }
+#endif
     // 編集器の表示用：節の進み具合（Wait の経った秒、Repeat の回数、Cooldown と TimeLimit の時間）。無ければ false。
     // host は節の progress に渡す World と持ち主（時間は進めない）。
     bool Progress(uint32_t node, const TickHost& host, NodeProgress& out);
@@ -156,6 +167,10 @@ private:
     // この実例が進んだ時間の合計（Cooldown と TimeLimit の時計）。
     double time_ = 0.0;
     uint64_t random_ = 0x9E3779B97F4A7C15ull;
+#if !defined(HIKARI_SHIPPING)
+    NodeStateObserver observer_ = nullptr;
+    void* observerUser_ = nullptr;
+#endif
 };
 
 } // namespace HIKARI::BEHAVIOR

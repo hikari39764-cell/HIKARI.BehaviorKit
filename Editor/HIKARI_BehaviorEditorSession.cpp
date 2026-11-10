@@ -323,6 +323,64 @@ uint32_t TreeEditor::InlineSubtree(OpenTree& tree, uint32_t node, std::string& m
     return tree.model.InlineSubtree(node, content, message);
 }
 
+bool TreeEditor::HasBreakpoint(std::string_view guid, uint32_t node) const noexcept {
+    return std::any_of(breakpoints_.begin(), breakpoints_.end(),
+                       [&](const Breakpoint& item) { return item.guid == guid && item.node == node; });
+}
+
+bool TreeEditor::SetBreakpoint(std::string_view guid, uint32_t node, bool enabled) {
+    if (HasBreakpoint(guid, node) == enabled) {
+        return false;
+    }
+    if (enabled) {
+        breakpoints_.push_back({std::string(guid), node});
+    } else {
+        std::erase_if(breakpoints_, [&](const Breakpoint& item) { return item.guid == guid && item.node == node; });
+    }
+    return true;
+}
+
+void TreeEditor::Observe(ITreeUser& user) {
+    user.SetObserver(breakpoints_.empty() ? nullptr : &TreeEditor::OnNodeState, this);
+}
+
+bool TreeEditor::TakeHit(Breakpoint& out) {
+    if (!hasHit_) {
+        return false;
+    }
+    out = hit_;
+    hasHit_ = false;
+    return true;
+}
+
+void TreeEditor::OnNodeState(void* user, const TreeInstance& instance, uint32_t node, NodeState from, NodeState to) {
+    auto& editor = *static_cast<TreeEditor*>(user);
+    // 走り始めた時（前が走っている・子を待っている以外）だけ。毎回確かめる条件の節は、確かめる度に当たる。
+    // 止めるまでの間に当たった最初の一つを覚える。
+    const CompiledTree* compiled = instance.Tree();
+    const bool continuing = from == NodeState::Running || from == NodeState::Waiting;
+    if (editor.hasHit_ || continuing || to == NodeState::Idle || compiled == nullptr ||
+        node >= compiled->nodes.size()) {
+        return;
+    }
+    const CompiledNode& compiledNode = compiled->nodes[node];
+    std::string guid{};
+    if (compiledNode.sourceTree != 0u) {
+        guid = compiled->subtrees[compiledNode.sourceTree - 1u].reference;
+    } else {
+        for (const ITreeUser* owner : BehaviorLibrary::Get().Users()) {
+            if (&owner->Instance() == &instance) {
+                guid = owner->TreeGuid();
+                break;
+            }
+        }
+    }
+    if (editor.HasBreakpoint(guid, compiledNode.sourceId)) {
+        editor.hit_ = {std::move(guid), compiledNode.sourceId};
+        editor.hasHit_ = true;
+    }
+}
+
 bool TreeEditor::ReadTree(std::string_view guid, TreeDocument& out, std::string& error) {
     if (const OpenTree* open = Find(guid)) {
         out = open->model.Document();

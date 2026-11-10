@@ -18,6 +18,10 @@ class IEditorWorkspaceCommands;
 } // namespace HIKARI::EDITOR_PROJECT
 
 // 行動樹の編集器が開いている樹。画面（作業区）と智能体の操作が同じ物を使う。
+namespace HIKARI::BEHAVIOR {
+class ITreeUser;
+}
+
 namespace HIKARI::BEHAVIOR::EDITING {
 
 // 節の種類の表：内蔵の節、引擎に触れる節、ゲーム項目や他のモジュールが登記した節。
@@ -123,6 +127,20 @@ public:
     void ForgetNames() noexcept { names_.clear(); }
 
     RunWatch& Watch() noexcept { return watch_; }
+
+    // ---- 断点：樹（GUID）の節が走り始めたら Play を一時停止する。樹のファイルには書かない ----
+    struct Breakpoint {
+        std::string guid{};
+        uint32_t node = 0u;
+    };
+    bool HasBreakpoint(std::string_view guid, uint32_t node) const noexcept;
+    // 変わった時に true。
+    bool SetBreakpoint(std::string_view guid, uint32_t node, bool enabled);
+    size_t BreakpointCount() const noexcept { return breakpoints_.size(); }
+    // 角色の樹の状態の変化を受け取る（断点がある間だけ。無ければ外す）。InspectRun が Play 中の角色ごとに呼ぶ。
+    void Observe(ITreeUser& user);
+    // 当たった断点（一度読むと消える）。止めるのは呼び手（Play の一時停止は推進の外で）。
+    bool TakeHit(Breakpoint& out);
     // 引擎の編集器の操作（play.start、asset.query など）をその場で呼ぶ。断られたら false と理由。
     bool RunOperation(std::string_view operationId, std::string_view parametersJson, std::string& dataJson,
                       std::string& message);
@@ -142,6 +160,10 @@ private:
     uint64_t epoch_ = 1u;
     std::unordered_map<std::string, std::string> names_{};
     RunWatch watch_{};
+    static void OnNodeState(void* user, const TreeInstance& instance, uint32_t node, NodeState from, NodeState to);
+    std::vector<Breakpoint> breakpoints_{};
+    Breakpoint hit_{};
+    bool hasHit_ = false;
 };
 
 } // namespace HIKARI::BEHAVIOR::EDITING

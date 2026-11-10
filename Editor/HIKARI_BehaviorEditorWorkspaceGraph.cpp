@@ -20,6 +20,7 @@ enum class NodeAction : int32_t {
     ToggleEnabled,
     Extract,
     Inline,
+    ToggleBreakpoint,
 };
 
 namespace {
@@ -27,9 +28,9 @@ namespace {
 using namespace HIKARI::EDITOR_PROJECT;
 
 // 並びは NodeAction の順。
-constexpr EditorNodeGraphMenuItem kNodeActions[] = {{"Set As Root"},           {"Disconnect From Parent"},
-                                                    {"Delete Only This Node"}, {"Disable / Enable Branch"},
-                                                    {"Extract To Subtree"},    {"Expand Subtree Here"}};
+constexpr EditorNodeGraphMenuItem kNodeActions[] = {
+    {"Set As Root"},        {"Disconnect From Parent"}, {"Delete Only This Node"},  {"Disable / Enable Branch"},
+    {"Extract To Subtree"}, {"Expand Subtree Here"},    {"Pause Here (Breakpoint)"}};
 
 // 節の種類ごとの見た目：題の帯の色と、題の左の印（色だけに頼らない）。
 struct KindStyle {
@@ -285,6 +286,15 @@ void TreeWorkspace::DrawGraph(IEditorWorkspaceUi& ui, OpenTree& tree, const RunV
             details[index] = FormatText(ui, "Now: {0}", {ui.Translate(found->second.inside)});
         }
         badges[index] = BadgeOf(ui, source.id, document.root, run);
+        // 断点の印（題の右の字の頭）。
+        if (editor.HasBreakpoint(tree.guid, source.id)) {
+            const std::string mark = FormatText(ui, "Break", {}).substr(1u);
+            badges[index] = Verbatim(badges[index].empty() ? mark
+                                                           : mark + " | " +
+                                                                 (badges[index].front() == kEditorTextVerbatim
+                                                                      ? badges[index].substr(1u)
+                                                                      : std::string(ui.Translate(badges[index]))));
+        }
         const std::string typeName = type != nullptr ? std::string(ui.Translate(type->displayName)) : source.type;
         // 題は付けた名前（無ければ種類の名前）。小字は名前がある時の種類の名前と、入れた切り替え。
         NodeSummary& summary = summaries[index] = SummarizeParams(ui, source, type, editor);
@@ -649,6 +659,14 @@ void TreeWorkspace::ApplyNodeAction(OpenTree& tree, NodeAction action) {
         } else {
             status_ = Plain(message);
         }
+        break;
+    }
+    case NodeAction::ToggleBreakpoint: {
+        const bool enable = !editor_->HasBreakpoint(tree.guid, first);
+        for (const uint32_t id : selected) {
+            editor_->SetBreakpoint(tree.guid, id, enable);
+        }
+        status_ = enable ? Message{"Play pauses when this node starts."} : Message{"Removed the breakpoint."};
         break;
     }
     case NodeAction::Inline:

@@ -33,6 +33,10 @@ public:
     virtual bool PokeKey(std::string_view name, const Value& value) = 0;
     // 編訳済みの樹の node 番目の節の進み具合（TreeInstance::Progress を持ち主の World で）。
     virtual bool Progress(uint32_t node, NodeProgress& out) = 0;
+#if !defined(HIKARI_SHIPPING)
+    // 編集器が断点や時間線のために、この角色の樹の状態の変化を受け取る。
+    virtual void SetObserver(NodeStateObserver observer, void* user) = 0;
+#endif
 
 protected:
     ~ITreeUser() = default;

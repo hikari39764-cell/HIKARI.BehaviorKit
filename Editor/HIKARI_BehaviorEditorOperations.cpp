@@ -515,6 +515,19 @@ private:
                      tree.Select({id});
                      data["node"] = id;
                  });
+        Add("behaviortree.breakpoint",
+            "Pause Play when a node starts (any character running the tree), or remove that breakpoint. "
+            "Breakpoints are not saved in the tree.",
+            EditorOperationKind::Mutation, EditorOperationPermission::ModifyEditorState,
+            {{"node", Type::Integer, true, "Id of the node."},
+             {"enabled", Type::Boolean, false, "false to remove (default true)."},
+             kTree},
+            [this](const Json& parameters) {
+                OpenTree& tree = TreeOf(parameters);
+                const uint32_t node = NodeOf(tree, parameters, "node").id;
+                editor_->SetBreakpoint(tree.guid, node, parameters.value("enabled", true));
+                return Json{{"breakpoints", editor_->BreakpointCount()}};
+            });
         Mutation("behaviortree.set_name",
                  "Give a node a name (shown instead of its type name) and a note. Empty text removes it. "
                  "Leave a field out to keep it.",

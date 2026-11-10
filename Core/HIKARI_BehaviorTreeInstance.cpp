@@ -65,7 +65,7 @@ public:
         if (status == Status::Running) {
             state = AnyChildActive(node) ? NodeState::Waiting : NodeState::Running;
         }
-        instance_.nodeStates_[index] = static_cast<uint8_t>(state);
+        Notify(index, state);
         instance_.lastTick_[index] = instance_.tick_;
         return status;
     }
@@ -84,7 +84,20 @@ public:
             node.type->stop(context, State(node), node.type->user, true);
         }
         instance_.active_[index] = 0u;
-        instance_.nodeStates_[index] = static_cast<uint8_t>(NodeState::Aborted);
+        Notify(index, NodeState::Aborted);
+    }
+
+    // 状態を書き、観察者へ知らせる（進めた度。前と同じ状態でも）。
+    void Notify(uint32_t index, NodeState state) {
+        const auto before = static_cast<NodeState>(instance_.nodeStates_[index]);
+        instance_.nodeStates_[index] = static_cast<uint8_t>(state);
+#if !defined(HIKARI_SHIPPING)
+        if (instance_.observer_ != nullptr) {
+            instance_.observer_(instance_.observerUser_, instance_, index, before, state);
+        }
+#else
+        static_cast<void>(before);
+#endif
     }
 
 private:
