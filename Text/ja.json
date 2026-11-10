@@ -349,6 +349,7 @@
   "{0} cannot have children": "{0} は子を持てません",
   "{0} has unsaved changes.": "{0} には未保存の変更があります。",
   "{0} is used by {1} nodes. They will show a problem until you change them.": "{0} は {1} 個のノードで使われています。削除すると、変更するまでそれらに問題が表示されます。",
+  "{0} nodes of type {1} selected: a change applies to all of them.": "{1} ノードを {0} 個選択中：変更はすべてに適用されます。",
   "{0} nodes selected.": "{0} 個のノードを選択中。",
   "{0} problems": "問題 {0} 件",
   "{0} takes one child and already has one": "{0} は子を一つしか持てず、もう子があります"

@@ -154,6 +154,8 @@ UI = {
     'Name': ('名字', '名前'), 'Note': ('备注', 'メモ'),
     'Shortcut': ('快捷键', 'ショートカット'),
     'Recently Opened': ('最近打开', '最近開いた'),
+    '{0} nodes of type {1} selected: a change applies to all of them.': (
+        '选中了 {0} 个“{1}”节点：改动会同时用到它们全部。', '{1} ノードを {0} 個選択中：変更はすべてに適用されます。'),
     '{0} ({1})': ('{0}（{1}）', '{0}（{1}）'),
     's': ('秒', '秒'), 'm': ('米', 'm'), 'm/s': ('米/秒', 'm/秒'),
     'Start again from the first child every tick, so an earlier child can take over.': (

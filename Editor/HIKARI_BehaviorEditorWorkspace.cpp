@@ -363,11 +363,26 @@ void TreeWorkspace::DrawDetails(IEditorWorkspaceUi& ui, OpenTree* tree, const Ru
                 }
                 ui.Separator();
                 DrawLabelFields(ui, *tree, *node);
-                tree->pendingCommit = DrawNodeParams(ui, *tree, node->id) || tree->pendingCommit;
+                const uint32_t ids[] = {node->id};
+                tree->pendingCommit = DrawNodeParams(ui, *tree, ids) || tree->pendingCommit;
+            } else if (tree->selected.size() > 1u) {
+                // 同じ種類の節だけを選んでいれば、参数を一度に変えられる。
+                const DocumentNode* first = tree->model.Find(tree->selected.front());
+                const bool sameType =
+                    first != nullptr && std::all_of(tree->selected.begin(), tree->selected.end(), [&](uint32_t id) {
+                        const DocumentNode* other = tree->model.Find(id);
+                        return other != nullptr && other->type == first->type;
+                    });
+                const NodeType* type = sameType ? Registry().Find(first->type) : nullptr;
+                if (type != nullptr) {
+                    ui.Text(FormatText(ui, "{0} nodes of type {1} selected: a change applies to all of them.",
+                                       {std::to_string(tree->selected.size()), ui.Translate(type->displayName)}));
+                    tree->pendingCommit = DrawNodeParams(ui, *tree, tree->selected) || tree->pendingCommit;
+                } else {
+                    ui.Text(FormatText(ui, "{0} nodes selected.", {std::to_string(tree->selected.size())}));
+                }
             } else {
-                ui.Text(tree->selected.size() > 1u
-                            ? FormatText(ui, "{0} nodes selected.", {std::to_string(tree->selected.size())})
-                            : std::string("Select a node to edit its parameters."));
+                ui.Text("Select a node to edit its parameters.");
             }
             ui.Separator();
             if (ui.Section("blackboard", "Blackboard")) {

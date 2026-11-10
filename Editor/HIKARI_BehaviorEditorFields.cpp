@@ -1,6 +1,7 @@
 #include "HIKARI_BehaviorEditorFields.h"
 
 #include <algorithm>
+#include <span>
 #include <cstdio>
 #include <iterator>
 #include <string_view>
@@ -74,7 +75,9 @@ bool ValueControl(IEditorWorkspaceUi& ui, const std::string& id, Value& value) {
 // 「+ New Variable...」でその場で型の合う変数を作って選ぶ。結果を書く先と物体の参数は、初めから変数の下拉。
 class ParamRows {
 public:
-    ParamRows(IEditorWorkspaceUi& ui, OpenTree& tree, uint32_t nodeId) : ui_(ui), tree_(tree), nodeId_(nodeId) {}
+    // nodeIds は同じ種類の節。値は最初の節のものを出し、変えると全部に書く。
+    ParamRows(IEditorWorkspaceUi& ui, OpenTree& tree, std::span<const uint32_t> nodeIds)
+        : ui_(ui), tree_(tree), nodeId_(nodeIds.front()), nodeIds_(nodeIds.begin(), nodeIds.end()) {}
 
     bool Draw() {
         const DocumentNode* node = tree_.model.Find(nodeId_);
@@ -93,9 +96,17 @@ public:
     }
 
 private:
-    void Write(DocumentParam param) {
+    void Write(const DocumentParam& param) {
         std::string message{};
-        changed_ = tree_.model.SetParam(Registry(), nodeId_, std::move(param), message) || changed_;
+        for (const uint32_t id : nodeIds_) {
+            changed_ = tree_.model.SetParam(Registry(), id, param, message) || changed_;
+        }
+    }
+
+    void Clear(const ParamSpec& spec) {
+        for (const uint32_t id : nodeIds_) {
+            changed_ = tree_.model.ClearParam(id, spec.name) || changed_;
+        }
     }
 
     void WriteKey(const ParamSpec& spec, std::string key) {
@@ -151,7 +162,7 @@ private:
         if (written != node->params.end() && !keyOnly) {
             ui_.SameLine();
             if (ui_.Button(id + ".reset", Verbatim("x"))) {
-                changed_ = tree_.model.ClearParam(nodeId_, spec.name) || changed_;
+                Clear(spec);
             }
             ui_.Tooltip("Back to the default value.");
         }
@@ -208,7 +219,7 @@ private:
         if (index == static_cast<int32_t>(names.size()) - 1) {
             WriteKey(spec, NewKey(spec));
         } else if (keyOnly && index == 0) {
-            changed_ = tree_.model.ClearParam(nodeId_, spec.name) || changed_;
+            Clear(spec);
         } else {
             WriteKey(spec, keys[static_cast<size_t>(index - offset)]);
         }
@@ -291,7 +302,7 @@ private:
 
     void WriteText(const ParamSpec& spec, std::string text) {
         if (text.empty()) {
-            changed_ = tree_.model.ClearParam(nodeId_, spec.name) || changed_;
+            Clear(spec);
             return;
         }
         DocumentParam param{};
@@ -304,6 +315,7 @@ private:
     IEditorWorkspaceUi& ui_;
     OpenTree& tree_;
     uint32_t nodeId_ = 0u;
+    std::vector<uint32_t> nodeIds_{};
     bool changed_ = false;
 };
 
@@ -383,8 +395,8 @@ NodeSummary SummarizeParams(IEditorWorkspaceUi& ui, const DocumentNode& node, co
     return summary;
 }
 
-bool DrawNodeParams(IEditorWorkspaceUi& ui, OpenTree& tree, uint32_t nodeId) {
-    return ParamRows(ui, tree, nodeId).Draw();
+bool DrawNodeParams(IEditorWorkspaceUi& ui, OpenTree& tree, std::span<const uint32_t> nodeIds) {
+    return !nodeIds.empty() && ParamRows(ui, tree, nodeIds).Draw();
 }
 
 bool DrawKeyValue(IEditorWorkspaceUi& ui, OpenTree& tree, size_t index) {
