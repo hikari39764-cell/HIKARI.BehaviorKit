@@ -105,11 +105,12 @@ void BehaviorLibrary::Build(const WorldView& world, const std::string& treeGuid,
     };
     TreeDocument document{};
     auto compiled = std::make_shared<CompiledTree>();
-    if (read(treeGuid, document, entry.error) && CompileTree(document, registry_, read, *compiled, entry.error)) {
+    Message error{};
+    if (read(treeGuid, document, entry.error) && CompileTree(document, registry_, read, *compiled, error)) {
         entry.tree = std::move(compiled);
         return;
     }
-    entry.error = "behavior tree " + treeGuid + ": " + entry.error;
+    entry.error = "behavior tree " + treeGuid + ": " + (entry.error.empty() ? error.English() : entry.error);
     entry.tree = std::move(previous);
     ReportError(entry.error);
 }

@@ -1,3 +1,5 @@
 Library/
 out/
 CMakeUserPresets.json
+
+__pycache__/

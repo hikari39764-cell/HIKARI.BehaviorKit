@@ -19,6 +19,11 @@ constexpr int32_t kBlackboardTypeCount = 5;
 
 } // namespace
 
+std::string Show(IEditorWorkspaceUi& ui, const Message& text) {
+    const std::vector<std::string_view> values(text.values.begin(), text.values.end());
+    return FormatText(ui, text.pattern, values);
+}
+
 TreeWorkspace::TreeWorkspace(std::shared_ptr<TreeEditor> editor) : editor_(std::move(editor)) {}
 
 EditorWorkspaceDescriptor TreeWorkspace::GetDescriptor() const {
@@ -44,7 +49,7 @@ bool TreeWorkspace::IsDirty() const { return editor_->AnyDirty(); }
 EditorWorkspaceSaveResult TreeWorkspace::Save(EditorWorkspaceHostContext&) {
     std::string message{};
     const bool saved = editor_->SaveAll(message);
-    status_ = saved ? "Saved." : "Could not save: " + message;
+    status_ = saved ? Message{"Saved."} : Message{"Could not save: {0}", {message}};
     return saved ? EditorWorkspaceSaveResult::Saved : EditorWorkspaceSaveResult::Failed;
 }
 
@@ -79,7 +84,7 @@ void TreeWorkspace::Draw(EditorWorkspaceHostContext& context) {
     if (OpenTree* tree = editor.Current();
         tree != nullptr && (interaction.undoPressed | interaction.redoPressed) != 0u) {
         const bool redo = interaction.redoPressed != 0u;
-        status_ = editor.Step(*tree, redo) ? (redo ? "Redone." : "Undone.") : "Nothing to undo or redo.";
+        status_ = {editor.Step(*tree, redo) ? (redo ? "Redone." : "Undone.") : "Nothing to undo or redo."};
     }
 
     frameSeconds_ = context.unscaledDeltaSeconds;
@@ -89,7 +94,7 @@ void TreeWorkspace::Draw(EditorWorkspaceHostContext& context) {
     const RunView run = tree != nullptr ? InspectRun(*tree, editor) : RunView{};
     UpdateLiveNotice(tree);
     if (run.watchReplaced) {
-        status_ = "The watched character is gone. Now watching " + std::string(run.user->OwnerName()) + ".";
+        status_ = {"The watched character is gone. Now watching {0}.", {std::string(run.user->OwnerName())}};
     }
     DrawPlayToolbar(ui, context.commands, run);
     if (ui.BeginPanel("graph", "Tree", nullptr, EditorWorkspaceDockRegion::Center)) {
@@ -106,11 +111,11 @@ void TreeWorkspace::Draw(EditorWorkspaceHostContext& context) {
 
 void TreeWorkspace::Open(std::string_view guid) {
     std::string message{};
-    status_ = editor_->Open(guid, message) != nullptr ? std::string{} : "Could not open the tree: " + message;
+    status_ = editor_->Open(guid, message) != nullptr ? Message{} : Message{"Could not open the tree: {0}", {message}};
 }
 
-void TreeWorkspace::Commit(OpenTree& tree, std::string message) {
-    status_ = editor_->Commit(tree) ? std::move(message) : "The change could not be recorded.";
+void TreeWorkspace::Commit(OpenTree& tree, Message message) {
+    status_ = editor_->Commit(tree) ? std::move(message) : Message{"The change could not be recorded."};
 }
 
 void TreeWorkspace::RefreshTypes() {
@@ -153,12 +158,13 @@ void TreeWorkspace::DrawTrees(IEditorWorkspaceUi& ui) {
         ui.Tooltip("Where to create a tree, under Assets. For example: Behavior/Guard");
         if (ui.Button("create", "Create Tree")) {
             std::string message{};
-            status_ = editor.Create(newName_, message) != nullptr ? "Created the tree."
-                                                                  : "Could not create the tree: " + message;
+            status_ = editor.Create(newName_, message) != nullptr
+                          ? Message{"Created the tree."}
+                          : Message{"Could not create the tree: {0}", {message}};
         }
         ui.Separator();
         for (const auto& tree : editor.Trees()) {
-            const std::string label = tree->name + (tree->IsDirty() || tree->pendingCommit ? " *" : "");
+            const std::string label = Verbatim(tree->name + (tree->IsDirty() || tree->pendingCommit ? " *" : ""));
             if (ui.Selectable("tree." + tree->guid, label, tree.get() == editor.Current())) {
                 editor.SetCurrent(*tree);
             }
@@ -177,11 +183,12 @@ void TreeWorkspace::DrawTreeButtons(IEditorWorkspaceUi& ui, OpenTree& tree) {
     TreeEditor& editor = *editor_;
     std::string message{};
     if (ui.Button("save", "Save")) {
-        status_ = editor.Save(tree, message) ? "Saved " + tree.name + "." : "Could not save: " + message;
+        status_ =
+            editor.Save(tree, message) ? Message{"Saved {0}.", {tree.name}} : Message{"Could not save: {0}", {message}};
     }
     ui.SameLine();
     if (ui.Button("saveAll", "Save All")) {
-        status_ = editor.SaveAll(message) ? "Saved." : "Could not save: " + message;
+        status_ = editor.SaveAll(message) ? Message{"Saved."} : Message{"Could not save: {0}", {message}};
     }
     ui.SameLine();
     if (ui.Button("close", "Close")) {
@@ -250,7 +257,7 @@ void TreeWorkspace::AddFromLibrary(OpenTree& tree, const std::string& typeName) 
     std::string message{};
     const uint32_t id = model.AddNodeAside(registry, typeName, message);
     if (id == 0u) {
-        status_ = message;
+        status_ = Plain(message);
         return;
     }
     if (parent != 0u) {
@@ -270,11 +277,12 @@ void TreeWorkspace::DrawDetails(IEditorWorkspaceUi& ui, OpenTree* tree, const Ru
             const DocumentNode* node = tree->selected.size() == 1u ? tree->model.Find(tree->selected.front()) : nullptr;
             if (node != nullptr) {
                 const NodeType* type = Registry().Find(node->type);
-                ui.Text(type != nullptr ? type->displayName : node->type + " (unknown node type)");
+                ui.Text(type != nullptr ? type->displayName : FormatText(ui, "{0} (unknown node type)", {node->type}));
                 tree->pendingCommit = DrawNodeParams(ui, *tree, node->id) || tree->pendingCommit;
             } else {
-                ui.Text(tree->selected.size() > 1u ? std::to_string(tree->selected.size()) + " nodes selected."
-                                                   : std::string("Select a node to edit its parameters."));
+                ui.Text(tree->selected.size() > 1u
+                            ? FormatText(ui, "{0} nodes selected.", {std::to_string(tree->selected.size())})
+                            : std::string("Select a node to edit its parameters."));
             }
             ui.Separator();
             if (ui.Section("blackboard", "Blackboard")) {
@@ -304,21 +312,23 @@ void TreeWorkspace::DrawBlackboard(IEditorWorkspaceUi& ui, OpenTree& tree, const
             keyName_[0] = '\0';
             Commit(tree);
         } else {
-            status_ = message;
+            status_ = Plain(message);
         }
     }
     ui.Tooltip("Adds a key, or changes the type of the key with this name.");
     if (!model.Document().blackboard.empty()) {
-        std::vector<std::string_view> names{};
+        // 変数の名前は訳さない。
+        std::vector<std::string> shown{};
         for (const DocumentKey& key : model.Document().blackboard) {
-            names.push_back(key.name);
+            shown.push_back(Verbatim(key.name));
         }
+        const std::vector<std::string_view> names(shown.begin(), shown.end());
         removeKey_ = std::clamp(removeKey_, 0, static_cast<int32_t>(names.size()) - 1);
         ui.Combo("removeKey", "Key", names, &removeKey_);
         ui.SameLine();
         if (ui.Button("removeKeyButton", "Remove Key")) {
-            // names は黒板の文字を指しているので、消す前に写す。
-            const std::string name(names[static_cast<size_t>(removeKey_)]);
+            // 黒板の文字を指しているので、消す前に写す。
+            const std::string name(model.Document().blackboard[static_cast<size_t>(removeKey_)].name);
             if (model.RemoveKey(name)) {
                 Commit(tree);
             }
@@ -330,7 +340,7 @@ void TreeWorkspace::DrawBlackboard(IEditorWorkspaceUi& ui, OpenTree& tree, const
 void TreeWorkspace::DrawProblems(IEditorWorkspaceUi& ui, OpenTree* tree) {
     if (ui.BeginPanel("problems", "Problems", nullptr, EditorWorkspaceDockRegion::Bottom)) {
         if (!status_.empty()) {
-            ui.Text(status_);
+            ui.Text(Show(ui, status_));
         }
         if (tree != nullptr) {
             const std::vector<Problem>& problems = editor_->Problems(*tree);
@@ -340,8 +350,9 @@ void TreeWorkspace::DrawProblems(IEditorWorkspaceUi& ui, OpenTree* tree) {
             for (size_t index = 0u; index < problems.size(); ++index) {
                 const Problem& problem = problems[index];
                 // 押すと、問題のある節を選ぶ。
-                if (ui.Selectable("problem." + std::to_string(index),
-                                  (problem.warning ? "Warning: " : "Error: ") + problem.message) &&
+                if (ui.Selectable(
+                        "problem." + std::to_string(index),
+                        FormatText(ui, problem.warning ? "Warning: {0}" : "Error: {0}", {Show(ui, problem.message)})) &&
                     problem.nodeId != 0u) {
                     tree->Select({problem.nodeId});
                 }

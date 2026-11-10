@@ -1,0 +1,233 @@
+"""行動樹モジュールの界面の訳文の元。make_tables.py が編集器の behaviortree.node_types の出力と合わせて
+Text/zh.json、Text/ja.json を作る（英文の原文がキー）。用词表は Text/Glossary.md。
+各項目は (中文, 日本語)。"""
+
+# 節の種類：表示名、分類、説明。
+NODES = {
+    'Sequence': ('顺序', 'シーケンス',
+                 '依次执行子节点，有一个失败就失败。Reactive：每一拍都从第一个子节点重新开始，前面的条件可以打断后面的动作。'
+                 'Order：fixed（从左到右）、random（每次开始时打乱顺序；套了 Score 的子节点按分数更常排在前面）或 utility'
+                 '（分数高的先走）。random 和 utility 下，分数为 0 或负的子节点这次不参加。',
+                 '子を順に実行し、一つでも失敗したら失敗します。Reactive：毎ティック最初の子からやり直すので、前の条件が後ろの動作を'
+                 '中断できます。Order：fixed（左から右）、random（開始のたびに順番を混ぜる。Score を付けた子は点数が高いほど先に来やすい）、'
+                 'utility（点数の高い順）。random と utility では点数が 0 以下の子は今回は参加しません。'),
+    'Selector': ('选择', 'セレクター',
+                 '依次尝试子节点，有一个成功就成功。Reactive：每一拍都从第一个子节点重新开始，优先的分支可以接管。'
+                 'Order：fixed（从左到右）、random（每次开始时打乱顺序；概率与 Score 成正比）或 utility（分数高的先走；加上 Reactive 时'
+                 '每一拍都重新看分数，更好的选择会接管）。random 和 utility 下，分数为 0 或负的子节点这次不参加。',
+                 '子を順に試し、一つでも成功したら成功します。Reactive：毎ティック最初の子からやり直すので、優先度の高い分岐が割り込めます。'
+                 'Order：fixed（左から右）、random（開始のたびに順番を混ぜる。確率は Score に比例）、utility（点数の高い順。Reactive と'
+                 '一緒だと毎ティック点数を読み直し、より良い選択に切り替わる）。random と utility では点数が 0 以下の子は参加しません。'),
+    'Parallel': ('并行', 'パラレル',
+                 '所有子节点一起执行。Policy "all"：全部成功才成功，有一个失败就失败。Policy "any"：有一个成功就成功，全部失败才失败。'
+                 'Order 为 random 或 utility 时，子节点在同一拍里按这个顺序执行，Score 为 0 或负的子节点不参加。',
+                 'すべての子を同時に実行します。Policy "all"：全部成功で成功、一つ失敗で失敗。Policy "any"：一つ成功で成功、全部失敗で失敗。'
+                 'Order が random か utility のときは、同じティック内でその順に実行し、Score が 0 以下の子は参加しません。'),
+    'Inverter': ('反转', 'インバーター', '把子节点的成功变成失败，失败变成成功。', '子の成功を失敗に、失敗を成功に反転します。'),
+    'ForceSuccess': ('强制成功', '強制成功', '子节点结束时，不管结果如何都成功。', '子が終わったら、結果に関係なく成功します。'),
+    'ForceFailure': ('强制失败', '強制失敗', '子节点结束时，不管结果如何都失败。', '子が終わったら、結果に関係なく失敗します。'),
+    'Repeat': ('重复', 'リピート', '子节点每次成功后再执行一次，共 Count 次（0 为一直重复）。子节点失败时失败。',
+               '子が成功するたびにもう一度実行し、Count 回繰り返します（0 は無限）。子が失敗したら失敗します。'),
+    'Cooldown': ('冷却', 'クールダウン', '子节点结束后，Seconds 秒内不再执行它，直接失败。',
+                 '子が終わってから Seconds 秒の間は子を実行せずに失敗します。'),
+    'TimeLimit': ('时间限制', '時間制限', '子节点执行超过 Seconds 秒时打断它并失败。', '子が Seconds 秒より長く実行されたら中断して失敗します。'),
+    'Subtree': ('子树', 'サブツリー', '在这个节点的位置执行另一个树资产。同名的变量共用。',
+                'このノードの位置で別のツリーアセットを実行します。同じ名前の変数は共有されます。'),
+    'Wait': ('等待', '待機', '持续执行 Seconds 秒，然后成功。', 'Seconds 秒のあいだ実行中になり、その後成功します。'),
+    'SetVariable': ('设置变量', '変数を設定', '把 Value（固定值或另一个变量）写进一个变量。', 'Value（固定値か別の変数）を変数に書き込みます。'),
+    'CheckVariable': ('检查变量', '変数を確認',
+                      '用 ==、!=、<、<=、> 或 >= 比较 Value 和 Other。"set" 在 Value 有内容时成功：有效的物体、true，或不为 0 的数。',
+                      'Value と Other を ==、!=、<、<=、>、>= で比べます。"set" は Value に中身があるとき成功します：有効なオブジェクト、true、'
+                      'または 0 でない数。'),
+    'Chance': ('概率', '確率', '以 Chance 的概率成功（0 为从不，1 为总是），否则失败。每个角色各自掷骰。',
+               'Chance の確率で成功し（0 は決して、1 は必ず）、それ以外は失敗します。キャラクターごとに別々に判定します。'),
+    'Score': ('打分', 'スコア',
+              '给子节点一个分数，供 Order 为 utility（分数高的先走）或 random（按分数比例先被选中）的 Selector、Sequence 或 Parallel 读取。'
+              '0 或负数：子节点不参加。用变量当分数，就能让别的节点或游戏代码改变它。除此之外只是执行它的子节点。',
+              '子に点数を付けます。Order が utility（点数の高い順）または random（点数に比例して先に選ばれる）の Selector、Sequence、'
+              'Parallel がこれを読みます。0 以下：その子は参加しません。変数を点数にすると、他のノードやゲームコードから変えられます。'
+              'それ以外は子をそのまま実行します。'),
+    'Succeed': ('成功', '成功', '立刻成功。', 'すぐに成功します。'),
+    'Fail': ('失败', '失敗', '立刻失败。', 'すぐに失敗します。'),
+    'MoveToObject': ('移动到物体', 'オブジェクトへ移動',
+                     '让这个物体朝另一个物体移动，直到进入 Arrive Distance 以内。目标不存在时失败。直接改物体的位置；用物理角色控制器移动的角色，'
+                     '要用游戏自己的移动节点。',
+                     'このオブジェクトを別のオブジェクトへ向けて、Arrive Distance 以内に入るまで動かします。目標が無いと失敗します。'
+                     'トランスフォームを直接動かすので、物理コントローラーで動くキャラクターにはゲーム側の移動ノードが必要です。'),
+    'MoveToPosition': ('移动到位置', '位置へ移動',
+                       '让这个物体朝一个位置移动，直到进入 Arrive Distance 以内。直接改物体的位置；用物理角色控制器移动的角色，要用游戏自己的移动节点。',
+                       'このオブジェクトをある位置へ向けて、Arrive Distance 以内に入るまで動かします。トランスフォームを直接動かすので、'
+                       '物理コントローラーで動くキャラクターにはゲーム側の移動ノードが必要です。'),
+    'IsObjectNear': ('物体在附近', 'オブジェクトが近い', '目标物体存在且在 Distance 以内（在地面上测量）时成功。',
+                     '目標のオブジェクトが存在し、Distance 以内（地面の平面で測る）にある間は成功します。'),
+    'IsPositionNear': ('位置在附近', '位置が近い', '这个物体在某个位置的 Distance 以内（在地面上测量）时成功。',
+                       'このオブジェクトがある位置から Distance 以内（地面の平面で測る）にある間は成功します。'),
+    'FindObject': ('查找物体', 'オブジェクトを探す', '按名字找场景里的物体，放进一个变量。找不到时失败。它会遍历所有物体，所以只执行一次，不要每拍执行。',
+                   'この名前のシーンオブジェクトを探して変数に入れます。見つからなければ失敗します。全オブジェクトを調べるので、毎ティックではなく一度だけ実行してください。'),
+    'PlayAnimation': ('播放动画', 'アニメーション再生', '把这个物体的动画器淡入到一个片段。不勾 Loop 时可以一直执行到片段播完。物体没有动画器或没有这个片段时失败。',
+                      'このオブジェクトのアニメーターをクリップへクロスフェードします。Loop が無ければクリップが終わるまで実行中にできます。'
+                      'アニメーターかクリップが無いと失敗します。'),
+    'EmitEvent': ('发出事件', 'イベントを発行', '以这个物体为来源发出一个世界事件，可以带一个值。游戏代码和编辑器里的绑定会响应它。',
+                  'このオブジェクトを発信元としてワールドイベントを発行します（値を付けることもできます）。ゲームコードとエディターのバインドが反応します。'),
+    'ReadVariable': ('读取变量', '変数を読む', '把这个物体的一个变量（或世界变量）复制到一个变量里。变量没有值时失败。',
+                     'このオブジェクトの変数（またはワールド変数）を一つ変数にコピーします。値が無ければ失敗します。'),
+    'WriteVariable': ('写入变量', '変数に書く', '把一个值（固定值或来自变量）写到这个物体的一个变量上，编辑器里的绑定可以读到。这个变量要先在项目的运行时变量里声明，类型要一致。',
+                      '値（固定値か変数から）をこのオブジェクトの変数に書き込み、エディターのバインドから読めるようにします。変数はプロジェクトの'
+                      'ランタイム変数で同じ型で宣言しておく必要があります。'),
+}
+
+# 分類と、参数の表示名。
+WORDS = {
+    'Composite': ('组合', 'コンポジット'), 'Decorator': ('装饰', 'デコレーター'), 'Tree': ('树', 'ツリー'),
+    'Flow': ('流程', 'フロー'), 'Blackboard': ('变量', '変数'), 'Utility': ('效用', 'ユーティリティ'),
+    'Movement': ('移动', '移動'), 'World': ('世界', 'ワールド'), 'Presentation': ('表现', '演出'),
+    'Reactive': ('随时打断', 'リアクティブ'), 'Order': ('顺序', '順番'), 'Policy': ('策略', 'ポリシー'),
+    'Count': ('次数', '回数'), 'Seconds': ('秒数', '秒数'), 'Key': ('变量', '変数'), 'Value': ('值', '値'),
+    'Compare': ('比较', '比較'), 'Other': ('另一个值', 'もう一方'), 'Chance': ('概率', '確率'), 'Score': ('分数', 'スコア'),
+    'Target': ('目标', '目標'), 'Speed': ('速度', '速度'), 'Arrive Distance': ('到达距离', '到着距離'),
+    'Face Movement': ('面朝移动方向', '進行方向を向く'), 'Use Navigation': ('使用导航', 'ナビゲーションを使う'),
+    'Distance': ('距离', '距離'), 'Name': ('名字', '名前'), 'Result': ('结果', '結果'), 'Clip': ('片段', 'クリップ'),
+    'Blend Seconds': ('过渡秒数', 'ブレンド秒数'), 'Loop': ('循环', 'ループ'), 'Wait Until Finished': ('等播完', '終わるまで待つ'),
+    'Event': ('事件', 'イベント'), 'Send Value': ('带值', '値を送る'), 'Variable': ('变量', '変数'),
+    'World Variable': ('世界变量', 'ワールド変数'), 'Weight': ('权重', '重み'),
+    # 固定の選択肢。
+    'fixed': ('固定', '固定'), 'random': ('随机', 'ランダム'), 'utility': ('效用', 'ユーティリティ'), 'all': ('全部', 'すべて'),
+    'any': ('任一', 'いずれか'), 'set': ('有值', '値あり'),
+    # 黒板の型。
+    'bool': ('真假', '真偽'), 'int': ('整数', '整数'), 'float': ('小数', '小数'), 'vec3': ('位置', '位置'), 'object': ('物体', 'オブジェクト'),
+    # 節の状態（角標）。
+    'Running': ('执行中', '実行中'), 'Waiting': ('等待子节点', '子を待機'), 'Success': ('成功', '成功'),
+    'Failure': ('失败', '失敗'), 'Aborted': ('被打断', '中断'), 'Root': ('根', 'ルート'),
+}
+
+# 作業区と部品の界面の字（固定の文と、FormatText の模板）。
+UI = {
+    'Behavior Tree': ('行为树', 'ビヘイビアツリー'),
+    'Behavior Kit': ('行为树模块', 'ビヘイビアキット'),
+    'Behavior': ('行为', 'ビヘイビア'),
+    'Runs a behavior tree asset on this object during Play.': ('Play 时在这个物体上执行一个行为树资产。',
+                                                               'Play 中にこのオブジェクトでビヘイビアツリーアセットを実行します。'),
+    'Enabled': ('启用', '有効'), 'Update': ('推进方式', '更新方法'), 'Update Interval': ('推进间隔', '更新間隔'),
+    'Initial Values': ('初始值', '初期値'), 'EveryFrame': ('每帧', '毎フレーム'), 'GameCode': ('游戏代码', 'ゲームコード'),
+    'Trees': ('树', 'ツリー'), 'Pick a behavior tree asset to open it.': ('选一个行为树资产打开。', 'ビヘイビアツリーアセットを選んで開きます。'),
+    'New Tree': ('新树', '新規ツリー'),
+    'Where to create a tree, under Assets. For example: Behavior/Guard': ('在 Assets 下新建树的位置。例如：Behavior/Guard',
+                                                                           'Assets 内のツリーの作成先。例：Behavior/Guard'),
+    'Create Tree': ('新建树', 'ツリーを作成'), 'Save': ('保存', '保存'), 'Save All': ('全部保存', 'すべて保存'), 'Close': ('关闭', '閉じる'),
+    'This tree has unsaved changes.': ('这棵树有没保存的修改。', 'このツリーには保存していない変更があります。'),
+    'Discard Changes': ('放弃修改', '変更を破棄'), 'Keep Open': ('保留', '開いたままにする'),
+    'Nodes': ('节点', 'ノード'), 'Click a node to add it under the selected node.': ('点一个节点，加到选中节点的下面。',
+                                                                                  'ノードをクリックすると、選んでいるノードの下に追加します。'),
+    'Details': ('详情', '詳細'), 'No tree is open.': ('没有打开的树。', '開いているツリーはありません。'),
+    'Select a node to edit its parameters.': ('选中一个节点来编辑参数。', 'ノードを選ぶとパラメーターを編集できます。'),
+    '{0} nodes selected.': ('选中了 {0} 个节点。', '{0} 個のノードを選択中。'),
+    '{0} (unknown node type)': ('{0}（不认识的节点类型）', '{0}（不明なノードの種類）'),
+    'Type': ('类型', '型'), 'Add Key': ('添加变量', '変数を追加'), 'Remove Key': ('删除变量', '変数を削除'),
+    'Adds a key, or changes the type of the key with this name.': ('添加变量，或者改同名变量的类型。', '変数を追加するか、同じ名前の変数の型を変えます。'),
+    'Problems': ('问题', '問題'), 'No problems: this tree can run.': ('没有问题：这棵树可以运行。', '問題なし：このツリーは実行できます。'),
+    'Warning: {0}': ('警告：{0}', '警告：{0}'), 'Error: {0}': ('错误：{0}', 'エラー：{0}'),
+    'Tree': ('树', 'ツリー'), 'Pick a behavior tree asset on the left, or create a new tree.': ('在左边选一个行为树资产，或者新建一棵树。',
+                                                                                              '左でビヘイビアツリーアセットを選ぶか、新しいツリーを作成してください。'),
+    'Saved.': ('已保存。', '保存しました。'), 'Saved {0}.': ('已保存 {0}。', '{0} を保存しました。'),
+    'Could not save: {0}': ('保存失败：{0}', '保存できませんでした：{0}'),
+    'Redone.': ('已重做。', 'やり直しました。'), 'Undone.': ('已撤销。', '元に戻しました。'),
+    'Nothing to undo or redo.': ('没有可以撤销或重做的。', '元に戻す・やり直す操作がありません。'),
+    'The watched character is gone. Now watching {0}.': ('看的角色不在了，现在看 {0}。', '見ていたキャラクターがいなくなりました。今は {0} を見ています。'),
+    'Could not open the tree: {0}': ('打不开这棵树：{0}', 'ツリーを開けませんでした：{0}'),
+    'The change could not be recorded.': ('这次修改没能记下来。', 'この変更を記録できませんでした。'),
+    'Created the tree.': ('已新建树。', 'ツリーを作成しました。'), 'Could not create the tree: {0}': ('新建树失败：{0}', 'ツリーを作成できませんでした：{0}'),
+    'Set As Root': ('设为根', 'ルートにする'), 'Disconnect From Parent': ('断开与父节点的连接', '親から切り離す'),
+    'Root | {0}': ('根 | {0}', 'ルート | {0}'),
+    '{0} (unsaved)': ('{0}（未保存）', '{0}（未保存）'),
+    'Play: no object is running this tree': ('Play：没有物体在用这棵树', 'Play：このツリーを使っているオブジェクトはありません'),
+    'Play: watching {0}': ('Play：正在看 {0}', 'Play：{0} を表示中'),
+    'Play: watching {0} (1 of {1}; Alt + click another one in the game view)': (
+        'Play：正在看 {0}（共 {1} 个；在游戏画面里 Alt + 点击换一个）', 'Play：{0} を表示中（{1} 体中；ゲーム画面で Alt + クリックで切り替え）'),
+    '1 problem': ('1 个问题', '問題 1 件'), '{0} problems': ('{0} 个问题', '問題 {0} 件'),
+    'Arrange': ('整理', '整列'), 'Arranged the tree.': ('已整理树。', 'ツリーを整列しました。'),
+    'Lay the tree out again from the root. Children run left to right.': ('从根重新排整棵树。子节点从左到右执行。',
+                                                                            'ルートからツリーを並べ直します。子は左から右へ実行されます。'),
+    'Frame All': ('全部显示', '全体を表示'), 'Changed the root.': ('已换根。', 'ルートを変えました。'),
+    'Now: {0}': ('正在执行：{0}', '実行中：{0}'),
+    '{0}  |  not started': ('{0}  |  还没开始', '{0}  |  未開始'), '{0}  |  idle': ('{0}  |  空闲', '{0}  |  待機中'),
+    '{0}  |  {1}': ('{0}  |  {1}', '{0}  |  {1}'),
+    'Could not save the trees before Play: {0}': ('Play 前保存树失败：{0}', 'Play 前にツリーを保存できませんでした：{0}'),
+    'Play did not start: {0}': ('Play 没能开始：{0}', 'Play を開始できませんでした：{0}'),
+    'Play': ('开始', 'プレイ'), 'Stop': ('停止', '停止'),
+    'Start or stop Play here. The game view on the right runs the game; click it to control the player, Alt + click a character to watch it.': (
+        '在这里开始或停止 Play。右边的游戏画面运行游戏；点一下就能操作主角，按住 Alt 点一个角色就看它。',
+        'ここで Play を開始・停止します。右のゲーム画面でゲームが動きます。クリックで主人公を操作、Alt + クリックでそのキャラクターを表示します。'),
+    'Resume': ('继续', '再開'), 'Pause': ('暂停', '一時停止'), 'Next Frame': ('下一帧', '次のフレーム'),
+    'Pause, then advance the game by one fixed tick.': ('暂停后让游戏前进一个固定帧。', '一時停止して、ゲームを固定ティック一つ分進めます。'),
+    'Game View': ('游戏画面', 'ゲーム画面'),
+    'Show the game view. Turn it off while only editing trees: the scene is then not rendered.': (
+        '显示游戏画面。只搭树时关掉它：这时不渲染场景。', 'ゲーム画面を表示します。ツリーを編集するだけのときはオフにすると、シーンを描画しません。'),
+    'Follow Selection': ('跟随选中', '選択に追従'),
+    'Watch the character selected in the Scene or Alt + clicked in the game view.': (
+        '看场景里选中的角色，或在游戏画面里 Alt + 点击的角色。', 'シーンで選んだキャラクター、またはゲーム画面で Alt + クリックしたキャラクターを表示します。'),
+    'Pin Tree': ('固定这棵树', 'ツリーを固定'),
+    'Stay on this tree when the selected character uses another tree.': ('选中的角色用的是另一棵树时，仍留在这棵树。',
+                                                                           '選んだキャラクターが別のツリーを使っていても、このツリーのままにします。'),
+    'Watch: no character uses this tree': ('观察：没有角色在用这棵树', '表示：このツリーを使っているキャラクターはいません'),
+    'Watch: start Play': ('观察：先开始 Play', '表示：Play を開始してください'), 'Watch': ('观察', '表示'),
+    'Characters that use this tree (directly or as a subtree), and what each one is doing now.': (
+        '用这棵树的角色（直接用或作为子树），以及各自正在做什么。', 'このツリーを使っているキャラクター（直接またはサブツリーとして）と、それぞれが今していること。'),
+    '  Trying changes (not saved)': ('  试改中（未保存）', '  試し中（未保存）'),
+    'Changes to the tree reach the running characters at once, without saving. Save keeps them; Discard Trial goes back to the last saved tree (Undo brings the changes back).': (
+        '树的修改不用保存就马上作用到正在跑的角色。保存会留下它们；放弃试改回到最后保存的树（撤销能找回修改）。',
+        'ツリーの変更は保存しなくてもすぐ実行中のキャラクターに届きます。保存で残し、試しを破棄で最後に保存したツリーに戻ります（元に戻すで変更を戻せます）。'),
+    'Discard Trial': ('放弃试改', '試しを破棄'),
+    'Went back to the last saved trees. Undo brings the changes back.': ('已回到最后保存的树。撤销能找回刚才的修改。',
+                                                                           '最後に保存したツリーに戻しました。元に戻すで変更を戻せます。'),
+    'The tree has errors: the game keeps running the last version that worked.': ('树有错误：游戏里还是上一份能跑的版本。',
+                                                                                   'ツリーにエラーがあります：ゲームでは前の動くバージョンのままです。'),
+    'The structure changed, so the characters started again from the root.': ('结构变了，角色已从根重新开始。',
+                                                                               '構造が変わったので、キャラクターはルートからやり直しました。'),
+    'Now, on {0}:': ('现在，{0} 的值：', '今の {0} の値：'), '{0}  (set by hand)': ('{0}  （手动改过）', '{0}  （手動で変更）'),
+    'Values set by hand change only this character, only until Play stops.': ('手动改的值只影响这个角色，只到 Play 停止。',
+                                                                               '手動で変えた値はこのキャラクターだけに、Play を止めるまで効きます。'),
+    '(none)': ('（无）', '（なし）'), '(fixed value)': ('（固定值）', '（固定値）'), '(an object)': ('（一个物体）', '（オブジェクト）'),
+    '{0} From': ('{0} 来源', '{0} の取得元'), '{0} Type': ('{0} 类型', '{0} の型'),
+    '{0}: filled in by nodes while the tree runs': ('{0}：树运行时由节点填入', '{0}：ツリーの実行中にノードが入れます'),
+    'idle': ('空闲', '待機中'),
+}
+
+# 問題の一覧の模板（Core の編訳と TreeModel::Validate が出す。{1} は節の種類名で、訳さない）。
+UI.update({
+    'blackboard key "{0}" has different types in the tree and a subtree': (
+        '变量“{0}”在这棵树和子树里的类型不同', '変数「{0}」の型がツリーとサブツリーで違います'),
+    'too many blackboard keys': ('变量太多', '変数が多すぎます'),
+    'node {0} is listed as a child but does not exist': ('节点 {0} 被列为子节点，但它不存在', 'ノード {0} は子として書かれていますが、存在しません'),
+    'node {0} ({1}) is used as a child more than once': ('节点 {0}（{1}）被当成子节点用了不止一次', 'ノード {0}（{1}）が子として複数回使われています'),
+    'node {0} ({1}): unknown node type (is the module or game code that provides it loaded?)': (
+        '节点 {0}（{1}）：不认识的节点类型（提供它的模块或游戏代码加载了吗？）',
+        'ノード {0}（{1}）：不明なノードの種類（それを提供するモジュールやゲームコードは読み込まれていますか？）'),
+    'node {0} ({1}) cannot have children': ('节点 {0}（{1}）不能有子节点', 'ノード {0}（{1}）は子を持てません'),
+    'node {0} ({1}) needs exactly one child': ('节点 {0}（{1}）需要正好一个子节点', 'ノード {0}（{1}）には子がちょうど一つ必要です'),
+    'node {0} ({1}) needs at least one child': ('节点 {0}（{1}）至少需要一个子节点', 'ノード {0}（{1}）には子が一つ以上必要です'),
+    'the tree has too many nodes': ('树的节点太多', 'ツリーのノードが多すぎます'),
+    'node {0} ({1}): needs one parameter, "tree", the tree asset to embed': (
+        '节点 {0}（{1}）：需要一个参数“tree”，即要嵌入的树资产', 'ノード {0}（{1}）：埋め込むツリーアセットを指すパラメーター "tree" が一つ必要です'),
+    'node {0} ({1}): subtree "{2}" contains itself': ('节点 {0}（{1}）：子树“{2}”包含了它自己', 'ノード {0}（{1}）：サブツリー「{2}」が自分自身を含んでいます'),
+    'node {0} ({1}): subtrees are nested too deeply or cannot be loaded here': (
+        '节点 {0}（{1}）：子树嵌套太深，或这里不能读取子树', 'ノード {0}（{1}）：サブツリーの入れ子が深すぎるか、ここでは読み込めません'),
+    'node {0} ({1}): subtree "{2}": {3}': ('节点 {0}（{1}）：子树“{2}”：{3}', 'ノード {0}（{1}）：サブツリー「{2}」：{3}'),
+    'subtree "{0}": {1}': ('子树“{0}”：{1}', 'サブツリー「{0}」：{1}'),
+    'node {0} ({1}): unknown parameter "{2}"': ('节点 {0}（{1}）：不认识的参数“{2}”', 'ノード {0}（{1}）：不明なパラメーター「{2}」'),
+    'node {0} ({1}): parameter "{2}" must name a blackboard key: {"key": "name"}': (
+        '节点 {0}（{1}）：参数“{2}”必须指定一个变量：{"key": "name"}', 'ノード {0}（{1}）：パラメーター「{2}」には変数を指定してください：{"key": "name"}'),
+    'node {0} ({1}): parameter "{2}": blackboard key "{3}" is not declared': (
+        '节点 {0}（{1}）：参数“{2}”：变量“{3}”没有声明', 'ノード {0}（{1}）：パラメーター「{2}」：変数「{3}」が宣言されていません'),
+    'node {0} ({1}): parameter "{2}": blackboard key "{3}" has the wrong type': (
+        '节点 {0}（{1}）：参数“{2}”：变量“{3}”的类型不对', 'ノード {0}（{1}）：パラメーター「{2}」：変数「{3}」の型が合いません'),
+    'node {0} ({1}): parameter "{2}" cannot be text': ('节点 {0}（{1}）：参数“{2}”不能是文字', 'ノード {0}（{1}）：パラメーター「{2}」に文字は使えません'),
+    'node {0} ({1}): parameter "{2}" must be one of: {3}': (
+        '节点 {0}（{1}）：参数“{2}”只能是：{3}', 'ノード {0}（{1}）：パラメーター「{2}」は次のどれかにしてください：{3}'),
+    'node {0} ({1}): parameter "{2}" has a value of the wrong type (objects come from a blackboard key)': (
+        '节点 {0}（{1}）：参数“{2}”的值类型不对（物体要从变量来）', 'ノード {0}（{1}）：パラメーター「{2}」の値の型が違います（オブジェクトは変数から渡します）'),
+    'node {0} ({1}): parameter "{2}" has a value of the wrong type': (
+        '节点 {0}（{1}）：参数“{2}”的值类型不对', 'ノード {0}（{1}）：パラメーター「{2}」の値の型が違います'),
+    'internal error: the root was not placed first': ('内部错误：根没有放在最前面', '内部エラー：ルートが先頭に置かれていません'),
+    'node {0} ({1}) is not connected to the tree and will not run': (
+        '节点 {0}（{1}）没有连到树上，不会执行', 'ノード {0}（{1}）はツリーにつながっていないので実行されません'),
+})

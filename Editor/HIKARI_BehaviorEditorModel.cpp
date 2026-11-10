@@ -15,15 +15,13 @@ constexpr float kArrangeGapX = 24.0f;
 constexpr float kArrangeRowHeight = 110.0f;
 constexpr float kAsideGapX = 200.0f;
 
-// 編訳の誤りは「node 12 (Wait): …」の形。先頭の節の id を取り出す（無ければ 0）。
-uint32_t LeadingNodeId(std::string_view message) noexcept {
-    constexpr std::string_view prefix = "node ";
-    if (!message.starts_with(prefix)) {
-        return 0u;
-    }
+// 編訳の誤りが節についての物（「node {0} …」）なら、その節の id（無ければ 0）。
+uint32_t LeadingNodeId(const Message& message) noexcept {
     uint32_t id = 0u;
-    const char* begin = message.data() + prefix.size();
-    std::from_chars(begin, message.data() + message.size(), id);
+    if (message.pattern.starts_with("node {0}") && !message.values.empty()) {
+        const std::string& text = message.values.front();
+        std::from_chars(text.data(), text.data() + text.size(), id);
+    }
     return id;
 }
 
@@ -377,9 +375,9 @@ std::vector<uint32_t> TreeModel::PasteNodes(std::string_view text, float x, floa
 std::vector<Problem> TreeModel::Validate(const NodeRegistry& registry, const LoadSubtreeFn& loadSubtree) const {
     std::vector<Problem> problems{};
     CompiledTree compiled{};
-    std::string error{};
+    Message error{};
     if (!CompileTree(document_, registry, loadSubtree, compiled, error)) {
-        problems.push_back({LeadingNodeId(error), error, false});
+        problems.push_back({LeadingNodeId(error), std::move(error), false});
     }
     std::unordered_set<uint32_t> reachable{};
     const auto visit = [&](auto&& self, uint32_t id) -> void {
@@ -394,10 +392,10 @@ std::vector<Problem> TreeModel::Validate(const NodeRegistry& registry, const Loa
     visit(visit, document_.root);
     for (const DocumentNode& node : document_.nodes) {
         if (!reachable.contains(node.id)) {
-            problems.push_back({node.id,
-                                "node " + std::to_string(node.id) + " (" + node.type +
-                                    ") is not connected to the tree and will not run",
-                                true});
+            problems.push_back(
+                {node.id,
+                 {"node {0} ({1}) is not connected to the tree and will not run", {std::to_string(node.id), node.type}},
+                 true});
         }
     }
     return problems;

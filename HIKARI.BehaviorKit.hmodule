@@ -4,6 +4,7 @@
   "name": "Behavior Kit",
   "version": "0.1.0",
   "publicIncludeDirectories": ["Public"],
+  "editorDirectories": ["Text"],
   "dependencies": [],
   "assetTypes": [
     {"typeId": "HIKARI.BehaviorKit.Tree", "extension": ".hbtree", "displayName": "Behavior Tree"}

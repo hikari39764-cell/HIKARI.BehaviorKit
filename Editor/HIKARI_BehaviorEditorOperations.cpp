@@ -183,7 +183,8 @@ private:
     Json Finish(OpenTree& tree, Json data) {
         Json problems = Json::array();
         for (const Problem& problem : editor_->Problems(tree)) {
-            problems.push_back({{"node", problem.nodeId}, {"message", problem.message}, {"warning", problem.warning}});
+            problems.push_back(
+                {{"node", problem.nodeId}, {"message", problem.message.English()}, {"warning", problem.warning}});
         }
         data["guid"] = tree.guid;
         data["unsaved"] = tree.IsDirty();

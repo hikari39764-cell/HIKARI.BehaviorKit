@@ -144,9 +144,10 @@ std::shared_ptr<const CompiledTree> Compile(const NodeRegistry& registry, std::s
                                             const LoadSubtreeFn& loader = {}) {
     TreeDocument document{};
     std::string error{};
+    Message compileError{};
     auto tree = std::make_shared<CompiledTree>();
-    if (!ParseTreeDocument(json, document, error) || !CompileTree(document, registry, loader, *tree, error)) {
-        std::printf("unexpected error: %s\n", error.c_str());
+    if (!ParseTreeDocument(json, document, error) || !CompileTree(document, registry, loader, *tree, compileError)) {
+        std::printf("unexpected error: %s%s\n", error.c_str(), compileError.English().c_str());
         ++gFailures;
         return {};
     }
@@ -159,7 +160,12 @@ void ExpectError(const NodeRegistry& registry, std::string_view json, std::strin
     TreeDocument document{};
     CompiledTree tree{};
     std::string error{};
-    const bool ok = ParseTreeDocument(json, document, error) && CompileTree(document, registry, loader, tree, error);
+    Message compileError{};
+    const bool ok =
+        ParseTreeDocument(json, document, error) && CompileTree(document, registry, loader, tree, compileError);
+    if (!compileError.empty()) {
+        error = compileError.English();
+    }
     if (ok || error.find(expected) == std::string::npos) {
         std::printf("FAILED: expected an error containing \"%.*s\", got \"%s\"\n", static_cast<int>(expected.size()),
                     expected.data(), ok ? "(no error)" : error.c_str());

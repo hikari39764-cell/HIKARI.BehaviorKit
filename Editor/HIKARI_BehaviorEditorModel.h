@@ -14,7 +14,8 @@ namespace HIKARI::BEHAVIOR::EDITING {
 struct Problem {
     // 0 は樹全体の問題。
     uint32_t nodeId = 0u;
-    std::string message{};
+    // 画面は模板を今の言語で、智能体には英文（English()）。
+    Message message{};
     // 警告は実行を妨げない（根に繋がっていない節など）。
     bool warning = false;
 };

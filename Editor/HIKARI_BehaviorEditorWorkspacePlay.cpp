@@ -22,12 +22,14 @@ constexpr float kValueHighlightSeconds = 0.6f;
 // 工具栏の知らせを出しておく秒数。
 constexpr float kNoticeSeconds = 4.0f;
 
-std::string WatchLabel(const RunUser& entry) {
+std::string WatchLabel(IEditorWorkspaceUi& ui, const RunUser& entry) {
     const std::string name(entry.user->OwnerName());
     if (!entry.started) {
-        return name + "  |  not started";
+        return FormatText(ui, "{0}  |  not started", {name});
     }
-    return name + "  |  " + (entry.activity.empty() ? std::string("idle") : entry.activity);
+    // 走っている節の名前（種類の表の英文）も今の言語へ。
+    return entry.activity.empty() ? FormatText(ui, "{0}  |  idle", {name})
+                                  : FormatText(ui, "{0}  |  {1}", {name, ui.Translate(entry.activity)});
 }
 
 } // namespace
@@ -65,12 +67,12 @@ void TreeWorkspace::StartPlay() {
     // 編集器の Play ボタンと同じく、開いている樹を先に保存する（play.start は保存していない文書があると断る）。
     std::string message{};
     if (editor_->AnyDirty() && !editor_->SaveAll(message)) {
-        status_ = "Could not save the trees before Play: " + message;
+        status_ = {"Could not save the trees before Play: {0}", {message}};
         return;
     }
     std::string data{};
     if (!editor_->RunOperation("play.start", "{}", data, message)) {
-        status_ = "Play did not start: " + message;
+        status_ = {"Play did not start: {0}", {message}};
     }
 }
 
@@ -132,7 +134,7 @@ void TreeWorkspace::DrawPlayToolbar(IEditorWorkspaceUi& ui, IEditorWorkspaceComm
                 if (entry.user == run.user) {
                     selected = static_cast<int32_t>(labels.size());
                 }
-                labels.push_back(WatchLabel(entry));
+                labels.push_back(WatchLabel(ui, entry));
             }
             const std::vector<std::string_view> items(labels.begin(), labels.end());
             if (ui.Combo("watch", "Watch", items, &selected) && selected >= 0 &&
@@ -160,19 +162,19 @@ void TreeWorkspace::DrawTrialControls(IEditorWorkspaceUi& ui) {
                "Discard Trial goes back to the last saved tree (Undo brings the changes back).");
     ui.SameLine();
     if (ui.Button("trialSave", "Save")) {
-        status_ = editor_->SaveAll(message) ? "Saved." : "Could not save: " + message;
+        status_ = editor_->SaveAll(message) ? Message{"Saved."} : Message{"Could not save: {0}", {message}};
     }
     ui.SameLine();
     if (ui.Button("trialDiscard", "Discard Trial")) {
         for (const auto& open : editor_->Trees()) {
             editor_->DiscardToSaved(*open);
         }
-        status_ = "Went back to the last saved trees. Undo brings the changes back.";
+        status_ = {"Went back to the last saved trees. Undo brings the changes back."};
     }
 }
 
 void TreeWorkspace::UpdateLiveNotice(OpenTree* tree) {
-    liveNotice_.clear();
+    liveNotice_ = {};
     const IEditorSceneServices* scene = editor_->Scene();
     if (scene == nullptr || !scene->IsPlayActive()) {
         noticeSeconds_ = 0.0f;
@@ -187,9 +189,9 @@ void TreeWorkspace::UpdateLiveNotice(OpenTree* tree) {
     const std::vector<Problem>* problems = tree != nullptr ? &editor_->Problems(*tree) : nullptr;
     if (problems != nullptr &&
         std::any_of(problems->begin(), problems->end(), [](const Problem& problem) { return !problem.warning; })) {
-        liveNotice_ = "The tree has errors: the game keeps running the last version that worked.";
+        liveNotice_ = {"The tree has errors: the game keeps running the last version that worked."};
     } else if (noticeSeconds_ > 0.0f) {
-        liveNotice_ = "The structure changed, so the characters started again from the root.";
+        liveNotice_ = {"The structure changed, so the characters started again from the root."};
         noticeSeconds_ -= frameSeconds_;
     }
 }
@@ -204,7 +206,7 @@ void TreeWorkspace::DrawRunValues(IEditorWorkspaceUi& ui, const OpenTree& tree, 
         return;
     }
     ui.Separator();
-    ui.Text("Now, on " + std::string(run.user->OwnerName()) + ":");
+    ui.Text(FormatText(ui, "Now, on {0}:", {run.user->OwnerName()}));
     if (!ui.BeginTable("runValues", 2u)) {
         return;
     }
@@ -224,7 +226,9 @@ void TreeWorkspace::DrawRunValues(IEditorWorkspaceUi& ui, const OpenTree& tree, 
         ui.TableNextColumn();
         // 変わったばかりの値は選ばれた行の色で出す。手で書き換えた値には印。
         const bool byHand = poked.contains(key.name);
-        ui.Selectable("name." + key.name, byHand ? key.name + "  (set by hand)" : key.name, shown.highlight > 0.0f);
+        ui.Selectable("name." + key.name,
+                      byHand ? FormatText(ui, "{0}  (set by hand)", {key.name}) : Verbatim(key.name),
+                      shown.highlight > 0.0f);
         ui.TableNextColumn();
         // 数と真偽はその場で書き換えられる（この角色のこの Play だけ。樹には書かない）。
         bool edited = false;
@@ -237,7 +241,11 @@ void TreeWorkspace::DrawRunValues(IEditorWorkspaceUi& ui, const OpenTree& tree, 
             break;
         }
         case ValueType::Float: edited = ui.InputFloat("value." + key.name, "##" + key.name, &value.number); break;
-        default: ui.Text(shown.text); break;
+        default:
+            // 物体は名前（訳さない）、空なら界面の字。
+            ui.Text(value.type == ValueType::Object && !value.object.IsValid() ? std::string("(none)")
+                                                                               : Verbatim(shown.text));
+            break;
         }
         if (edited && run.user->PokeKey(key.name, value)) {
             poked.insert(key.name);

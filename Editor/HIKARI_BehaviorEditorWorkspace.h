@@ -15,6 +15,12 @@
 // 樹の図は HIKARI_BehaviorEditorWorkspaceGraph.cpp。
 namespace HIKARI::BEHAVIOR::EDITING {
 
+// 模型や引擎が返した理由をそのまま出す文（空なら何も出さない）。
+inline Message Plain(std::string message) { return message.empty() ? Message{} : Message{"{0}", {std::move(message)}}; }
+
+// 模板を今の言語で組んだ、そのまま出す字（Verbatim の印付き）。
+std::string Show(EDITOR_PROJECT::IEditorWorkspaceUi& ui, const Message& text);
+
 class TreeWorkspace final : public EDITOR_PROJECT::IEditorWorkspace {
 public:
     explicit TreeWorkspace(std::shared_ptr<TreeEditor> editor);
@@ -35,7 +41,7 @@ public:
 private:
     void Open(std::string_view guid);
     // tree.model を書き換えた後：一手として積む。message は画面に出す知らせ。
-    void Commit(OpenTree& tree, std::string message = {});
+    void Commit(OpenTree& tree, Message message = {});
     // 節の種類を、Composite、Decorator、他の分類の順に並べる（図の献立と左の一覧が同じ並び）。
     void RefreshTypes();
 
@@ -62,13 +68,14 @@ private:
     void DrawRunValues(EDITOR_PROJECT::IEditorWorkspaceUi& ui, const OpenTree& tree, const RunView& run);
 
     // ---- 樹の図（HIKARI_BehaviorEditorWorkspaceGraph.cpp）----
-    std::string StatusLine(const OpenTree& tree, size_t problemCount, const RunView& run) const;
+    std::string StatusLine(EDITOR_PROJECT::IEditorWorkspaceUi& ui, const OpenTree& tree, size_t problemCount,
+                           const RunView& run) const;
     void DrawGraph(EDITOR_PROJECT::IEditorWorkspaceUi& ui, OpenTree& tree, const RunView& run);
     void ApplyGraphResult(EDITOR_PROJECT::IEditorWorkspaceUi& ui, OpenTree& tree,
                           const EDITOR_PROJECT::EditorNodeGraphResult& result);
 
     std::shared_ptr<TreeEditor> editor_;
-    std::string status_{};
+    Message status_{};
     std::string closeAsked_{};
     char newName_[128] = "Behavior/NewTree";
     char keyName_[64]{};
@@ -90,7 +97,7 @@ private:
     std::unordered_map<std::string, ShownValue> shownValues_{};
     const ITreeUser* shownUser_ = nullptr;
     // 状態行の知らせと、形が変わった知らせを出しておく残りの秒数、最後に見た知らせの番号。
-    std::string liveNotice_{};
+    Message liveNotice_{};
     float noticeSeconds_ = 0.0f;
     uint64_t liveChangeSerial_ = 0u;
 };

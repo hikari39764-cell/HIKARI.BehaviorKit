@@ -7,6 +7,7 @@
 #include <string_view>
 #include <vector>
 
+#include "HIKARI_BehaviorMessage.h"
 #include "HIKARI_BehaviorNodeRegistry.h"
 #include "HIKARI_BehaviorTreeDocument.h"
 
@@ -71,9 +72,10 @@ bool SameShape(const CompiledTree& left, const CompiledTree& right) noexcept;
 // Subtree の節が指す樹を読む。reference は "tree" に書かれた値そのまま（資産の GUID）。
 using LoadSubtreeFn = std::function<bool(std::string_view reference, TreeDocument& out, std::string& error)>;
 
-// 節の種類、子の数、参数の名前と型、黒板のキーを確かめて詰める。誤りは「node 12 (MoveTo): …」の形の理由。
+// 節の種類、子の数、参数の名前と型、黒板のキーを確かめて詰める。誤りは「node {0} ({1}): …」の模板と値
+// （節についての誤りは values の先頭が節の id）。
 bool CompileTree(const TreeDocument& document, const NodeRegistry& registry, const LoadSubtreeFn& loadSubtree,
-                 CompiledTree& out, std::string& error);
+                 CompiledTree& out, Message& error);
 
 // 節の今の状態（編集器と behaviortree.run_state が見せる物）。根が終わって次の回が最初から始まる時に全部 Idle へ戻る。
 enum class NodeState : uint8_t {

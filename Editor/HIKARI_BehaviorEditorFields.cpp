@@ -44,7 +44,7 @@ DocumentParam DefaultParam(const ParamSpec& spec) {
 // 選んだ節の参数を、種類の宣言どおりの控件で出す。変えた値はその場で樹に書く（文書へ積むのは作業区）。
 class ParamFields final : public IPropertyFieldDeclaration {
 public:
-    ParamFields(OpenTree& tree, uint32_t nodeId) : tree_(tree), nodeId_(nodeId) {}
+    ParamFields(IEditorWorkspaceUi& ui, OpenTree& tree, uint32_t nodeId) : ui_(ui), tree_(tree), nodeId_(nodeId) {}
 
     void Describe(PropertyFields& fields) override {
         const DocumentNode* node = tree_.model.Find(nodeId_);
@@ -92,9 +92,12 @@ private:
         // 結果を書く先と物体は、黒板のキーでしか指せない。他の参数は、型の合うキーがある時だけ選べる。
         const bool keyOnly = spec.output || spec.type == ValueType::Object;
         std::vector<std::string> sources{keyOnly ? "(none)" : "(fixed value)"};
+        // 選べる物の見せ方：先頭は界面の字、後ろは変数の名前（訳さない）。
+        std::vector<std::string> shown{sources.front()};
         for (const DocumentKey& key : tree_.model.Document().blackboard) {
             if (spec.type == ValueType::Any || IsConvertible(key.value.type, spec.type)) {
                 sources.push_back(key.name);
+                shown.push_back(Verbatim(key.name));
             }
         }
         int source = 0;
@@ -103,13 +106,14 @@ private:
             if (found == sources.end()) {
                 // 消されたキーを指している：そのまま見せる（問題の一覧に理由が出る）。
                 sources.push_back(param.key);
+                shown.push_back(Verbatim(param.key));
                 found = sources.end() - 1;
             }
             source = static_cast<int>(found - sources.begin());
         }
         if (keyOnly || sources.size() > 1u) {
-            const std::vector<std::string_view> names(sources.begin(), sources.end());
-            const std::string label = keyOnly ? spec.label : spec.label + " From";
+            const std::vector<std::string_view> names(shown.begin(), shown.end());
+            const std::string label = keyOnly ? spec.label : FormatText(ui_, "{0} From", {ui_.Translate(spec.label)});
             if (fields.Choice(spec.name + ".from", label, source, names)) {
                 if (source != 0) {
                     DocumentParam key{};
@@ -144,7 +148,8 @@ private:
                     typeIndex = static_cast<int>(index);
                 }
             }
-            if (fields.Choice(spec.name + ".type", spec.label + " Type", typeIndex, typeNames)) {
+            if (fields.Choice(spec.name + ".type", FormatText(ui_, "{0} Type", {ui_.Translate(spec.label)}), typeIndex,
+                              typeNames)) {
                 Value converted{};
                 converted.type = kTypes[static_cast<size_t>(typeIndex)];
                 AssignNumber(converted, ToNumber(param.literal));
@@ -198,6 +203,7 @@ private:
         }
     }
 
+    IEditorWorkspaceUi& ui_;
     OpenTree& tree_;
     uint32_t nodeId_ = 0u;
 };
@@ -205,13 +211,14 @@ private:
 // 黒板のキーの初期値。物体のキーは樹が走っている間に節が入れるので、初期値は無い。
 class BlackboardFields final : public IPropertyFieldDeclaration {
 public:
-    explicit BlackboardFields(OpenTree& tree) : tree_(tree) {}
+    BlackboardFields(IEditorWorkspaceUi& ui, OpenTree& tree) : ui_(ui), tree_(tree) {}
 
     void Describe(PropertyFields& fields) override {
         // SetKey は同じ名前の項目をその場で置き換えるので、番号で回る間に並びは変わらない。
         for (size_t index = 0u; index < tree_.model.Document().blackboard.size(); ++index) {
             DocumentKey key = tree_.model.Document().blackboard[index];
-            const std::string label = key.name + " (" + std::string(BlackboardTypeName(key.value.type)) + ")";
+            // 変数の名前と型の名前は訳さない。
+            const std::string label = Verbatim(key.name + " (" + std::string(BlackboardTypeName(key.value.type)) + ")");
             const std::string id = "key." + key.name;
             bool edited = false;
             switch (key.value.type) {
@@ -224,7 +231,7 @@ public:
             }
             case ValueType::Float: edited = fields.Float(id, label, key.value.number); break;
             case ValueType::Vec3: edited = fields.Float3(id, label, key.value.vector); break;
-            default: fields.Note(label + ": filled in by nodes while the tree runs"); break;
+            default: fields.Note(FormatText(ui_, "{0}: filled in by nodes while the tree runs", {label})); break;
             }
             std::string message{};
             if (edited && tree_.model.SetKey(std::move(key), message)) {
@@ -236,6 +243,7 @@ public:
     bool changed = false;
 
 private:
+    IEditorWorkspaceUi& ui_;
     OpenTree& tree_;
 };
 
@@ -253,18 +261,23 @@ std::string FormatValue(const Value& value) {
     }
 }
 
-std::string SummarizeParams(const DocumentNode& node, const NodeType* type, TreeEditor& editor) {
+std::string SummarizeParams(IEditorWorkspaceUi& ui, const DocumentNode& node, const NodeType* type,
+                            TreeEditor& editor) {
+    // 参数の名前と固定の選択肢は今の言語、値・変数の名前・資産の名前はそのまま。
     std::string detail{};
     const auto add = [&](const DocumentParam& param, const std::string& label) {
         if (!detail.empty()) {
             detail += '\n';
         }
-        detail += label + ": ";
+        detail += std::string(ui.Translate(label)) + ": ";
         if (param.isKey) {
             detail += "[" + param.key + "]";
         } else if (param.isText) {
-            detail +=
-                type != nullptr && type->builtin == BuiltinKind::Subtree ? editor.AssetName(param.text) : param.text;
+            const bool subtree = type != nullptr && type->builtin == BuiltinKind::Subtree;
+            const ParamSpec* spec = FindSpec(type, param.name);
+            detail += subtree                                     ? editor.AssetName(param.text)
+                      : spec != nullptr && !spec->choices.empty() ? std::string(ui.Translate(param.text))
+                                                                  : param.text;
         } else {
             detail += FormatValue(param.literal);
         }
@@ -283,17 +296,17 @@ std::string SummarizeParams(const DocumentNode& node, const NodeType* type, Tree
             add(param, param.name);
         }
     }
-    return detail;
+    return detail.empty() ? detail : Verbatim(detail);
 }
 
 bool DrawNodeParams(IEditorWorkspaceUi& ui, OpenTree& tree, uint32_t nodeId) {
-    ParamFields fields(tree, nodeId);
+    ParamFields fields(ui, tree, nodeId);
     ui.Fields("node." + std::to_string(nodeId), fields);
     return fields.changed;
 }
 
 bool DrawBlackboardValues(IEditorWorkspaceUi& ui, OpenTree& tree) {
-    BlackboardFields fields(tree);
+    BlackboardFields fields(ui, tree);
     ui.Fields("blackboard", fields);
     return fields.changed;
 }

@@ -44,8 +44,8 @@ NodeState RunStateOf(uint32_t id, const RunView& run) {
     return found != run.nodes.end() ? found->second.state : NodeState::Idle;
 }
 
-// 題の右の字：根の印と、Play 中の節の様子。
-std::string BadgeOf(uint32_t id, uint32_t root, const RunView& run) {
+// 題の右の字：根の印と、Play 中の節の様子（英文の名前を今の言語へ）。
+std::string BadgeOf(IEditorWorkspaceUi& ui, uint32_t id, uint32_t root, const RunView& run) {
     const NodeState runState = RunStateOf(id, run);
     std::string state = run.user != nullptr && runState != NodeState::Idle ? std::string(NodeStateName(runState)) : "";
     if (!state.empty()) {
@@ -54,7 +54,7 @@ std::string BadgeOf(uint32_t id, uint32_t root, const RunView& run) {
     if (id != root) {
         return state;
     }
-    return state.empty() ? "Root" : "Root | " + state;
+    return state.empty() ? "Root" : FormatText(ui, "Root | {0}", {ui.Translate(state)});
 }
 
 EditorNodeGraphHighlight HighlightOf(uint32_t id, const std::vector<Problem>& problems, const RunView& run) {
@@ -83,21 +83,30 @@ EditorNodeGraphHighlight HighlightOf(uint32_t id, const std::vector<Problem>& pr
 
 } // namespace
 
-std::string TreeWorkspace::StatusLine(const OpenTree& tree, size_t problemCount, const RunView& run) const {
-    std::string line = tree.name + (tree.IsDirty() || tree.pendingCommit ? " (unsaved)" : "");
+// 図の上の一行：樹の名前、Play 中なら見ている角色と知らせ、そうでなければ問題の数。
+std::string TreeWorkspace::StatusLine(IEditorWorkspaceUi& ui, const OpenTree& tree, size_t problemCount,
+                                      const RunView& run) const {
+    std::string line =
+        tree.IsDirty() || tree.pendingCommit ? FormatText(ui, "{0} (unsaved)", {tree.name}) : Verbatim(tree.name);
+    const auto append = [&](const std::string& part) { line += "  |  " + part.substr(1u); };
     const IEditorSceneServices* scene = editor_->Scene();
     if (scene != nullptr && scene->IsPlayActive()) {
         if (run.user == nullptr) {
-            return line + "  |  Play: no object is running this tree";
+            append(FormatText(ui, "Play: no object is running this tree", {}));
+            return line;
         }
-        line += "  |  Play: watching " + std::string(run.user->OwnerName());
-        if (run.users.size() > 1u) {
-            line += " (1 of " + std::to_string(run.users.size()) + "; Alt + click another one in the game view)";
+        append(run.users.size() > 1u
+                   ? FormatText(ui, "Play: watching {0} (1 of {1}; Alt + click another one in the game view)",
+                                {run.user->OwnerName(), std::to_string(run.users.size())})
+                   : FormatText(ui, "Play: watching {0}", {run.user->OwnerName()}));
+        if (!liveNotice_.empty()) {
+            append(Show(ui, liveNotice_));
         }
-        return liveNotice_.empty() ? line : line + "  |  " + liveNotice_;
+        return line;
     }
     if (problemCount != 0u) {
-        line += "  |  " + std::to_string(problemCount) + (problemCount == 1u ? " problem" : " problems");
+        append(problemCount == 1u ? FormatText(ui, "1 problem", {})
+                                  : FormatText(ui, "{0} problems", {std::to_string(problemCount)}));
     }
     return line;
 }
@@ -112,7 +121,7 @@ void TreeWorkspace::DrawGraph(IEditorWorkspaceUi& ui, OpenTree& tree, const RunV
     if (ui.Button("arrange", "Arrange")) {
         model.Arrange(tree.widths);
         tree.frameAll = true;
-        Commit(tree, "Arranged the tree.");
+        Commit(tree, {"Arranged the tree."});
     }
     ui.Tooltip("Lay the tree out again from the root. Children run left to right.");
     ui.SameLine();
@@ -120,7 +129,7 @@ void TreeWorkspace::DrawGraph(IEditorWorkspaceUi& ui, OpenTree& tree, const RunV
         tree.frameAll = true;
     }
     ui.SameLine();
-    ui.Text(StatusLine(tree, problems.size(), run));
+    ui.Text(StatusLine(ui, tree, problems.size(), run));
 
     const TreeDocument& document = model.Document();
     const size_t count = document.nodes.size();
@@ -133,12 +142,13 @@ void TreeWorkspace::DrawGraph(IEditorWorkspaceUi& ui, OpenTree& tree, const RunV
         const DocumentNode& source = document.nodes[index];
         const NodeType* type = registry.Find(source.type);
         const uint64_t id = source.id;
-        details[index] = SummarizeParams(source, type, editor);
+        details[index] = SummarizeParams(ui, source, type, editor);
         // 埋め込んだ樹の中で走っている葉（Subtree の節）。
         if (const auto found = run.nodes.find(source.id); found != run.nodes.end() && !found->second.inside.empty()) {
-            details[index] += (details[index].empty() ? "" : "\n") + std::string("Now: ") + found->second.inside;
+            const std::string now = FormatText(ui, "Now: {0}", {ui.Translate(found->second.inside)});
+            details[index] = details[index].empty() ? now : details[index] + "\n" + now.substr(1u);
         }
-        badges[index] = BadgeOf(source.id, document.root, run);
+        badges[index] = BadgeOf(ui, source.id, document.root, run);
         // 引脚の id：入力（親から）は 節 * 2、出力（子へ）は 節 * 2 + 1。
         pins[index * 2u].id = id * 2u;
         pins[index * 2u + 1u].id = id * 2u + 1u;
@@ -225,12 +235,12 @@ void TreeWorkspace::ApplyGraphResult(IEditorWorkspaceUi& ui, OpenTree& tree, con
         if (model.Connect(registry, parent, child, message)) {
             Commit(tree);
         } else if (!message.empty()) {
-            status_ = message;
+            status_ = Plain(message);
         }
     }
     if (result.nodeActionIndex == kActionSetRoot && !selected.empty()) {
         if (model.SetRoot(selected.front(), message)) {
-            Commit(tree, "Changed the root.");
+            Commit(tree, {"Changed the root."});
         }
     } else if (result.nodeActionIndex == kActionDisconnect) {
         bool changed = false;
@@ -251,9 +261,9 @@ void TreeWorkspace::ApplyGraphResult(IEditorWorkspaceUi& ui, OpenTree& tree, con
         }
         changed = model.RemoveNodes(selected, message) != 0u || changed;
         if (changed) {
-            Commit(tree, message);
+            Commit(tree, Plain(message));
         } else if (!message.empty()) {
-            status_ = message;
+            status_ = Plain(message);
         }
     }
     if (result.createItemIndex >= 0 && static_cast<size_t>(result.createItemIndex) < typeNames_.size()) {
@@ -266,7 +276,7 @@ void TreeWorkspace::ApplyGraphResult(IEditorWorkspaceUi& ui, OpenTree& tree, con
                 model.Connect(registry, fromOutput ? other : id, fromOutput ? id : other, message);
             }
             tree.Select({id});
-            Commit(tree, message);
+            Commit(tree, Plain(message));
         }
     }
     if ((result.pasteRequested | result.duplicateRequested) != 0u) {

@@ -253,8 +253,9 @@ std::string TreeEditor::LiveEffect(OpenTree& tree) {
         }
         TreeDocument root{};
         CompiledTree compiled{};
-        std::string error{};
-        if (!ReadTree(user->TreeGuid(), root, error) || !CompileTree(root, Registry(), loader, compiled, error)) {
+        std::string readError{};
+        Message error{};
+        if (!ReadTree(user->TreeGuid(), root, readError) || !CompileTree(root, Registry(), loader, compiled, error)) {
             return "has errors: the game keeps running the last version that worked";
         }
         return SameShape(*running, compiled) ? "keeps running: characters use the new values on their next update"

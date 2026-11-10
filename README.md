@@ -215,6 +215,28 @@ Selector (order: utility, reactive: true)
 - `MoveToObject` / `MoveToPosition` 直接改物体的位置。用物理角色控制器移动的角色，要由游戏登记自己的移动节点。
 - `WriteVariable` 写的变量要先在项目的运行时变量里声明（`ProjectSettings/runtime_bindings.json`），类型要一致，否则引擎不让写。
 
+## 界面语言
+
+编辑器切到中文或日文时，行为树工作区、节点库、节点的名字说明和参数、问题列表、检查器里的 Behavior Tree 组件都跟着换，
+不用重开项目。译文在 `Text/zh.json`、`Text/ja.json`（英文原文 → 译文），由 `TextSource/make_tables.py` 生成：
+
+```
+python -I -X utf8 TextSource/make_tables.py <behaviortree.node_types 的输出>
+```
+
+译文写在 `TextSource/translations.py`，用词照 `TextSource/Glossary.md`。脚本拿编辑器导出的节点原文逐条核对，缺一条就报错。
+树文件里存的仍是类型名（`Sequence`）、参数的英文键和选项的原值，换语言不会改树文件；智能体操作的返回也一直是英文。
+
+**给游戏登记的节点加译文**：在项目的 `ProjectSettings/Text/zh.json`、`ja.json` 里写节点的显示名、类别、说明、参数名：
+
+```json
+{
+  "See Target": "看见目标",
+  "Succeeds while the named object is within Range, and stores it in Target.": "名字对应的物体在 Range 以内时成功，并把它放进 Target。",
+  "Range": "范围"
+}
+```
+
 ## 登记自己的节点
 
 游戏项目只要包含模块的一个头文件，不用链接任何库，也不用在 `CMakeLists.txt` 里写包含路径：项目启用了本模块，
