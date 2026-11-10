@@ -2,6 +2,8 @@
 
 #include <cstdint>
 #include <memory>
+#include <string>
+#include <string_view>
 #include <unordered_map>
 #include <vector>
 
@@ -28,22 +30,37 @@ struct NodeRun {
     NodeState state = NodeState::Idle;
     // 一番新しい Tick で進められた。
     bool ticked = false;
+    // Subtree の節：埋め込んだ樹の中で今走っている葉の名前。
+    std::string inside{};
 };
 
-// Play 中、開いている樹を走らせている部品一つの実行状態を、樹の節（資産の中の id）へ写したもの。
-struct RunView {
-    // 見ている部品。Play 中でない・この樹を誰も走らせていない時は nullptr。
+// 開いている樹を使っている角色一人（直接でも、Subtree として埋め込んでいても）。
+struct RunUser {
     const ITreeUser* user = nullptr;
-    // この樹を走らせている部品の数。
-    size_t userCount = 0u;
-    // 場景で選ばれている物体を見ている（そうでなければ最初に見つかった部品）。
-    bool followsSelection = false;
+    // 今走っている葉の名前。まだ一度も進めていない（ゲームのコードが進める樹など）なら started が偽。
+    std::string activity{};
+    bool started = false;
+};
+
+// Play 中、開いている樹の実行状態。見ている角色（TreeEditor::Watch）の様子を樹の節（資産の中の id）へ写す。
+struct RunView {
+    // 見ている角色。Play 中でない・この樹を誰も使っていない時は nullptr。
+    const ITreeUser* user = nullptr;
+    std::vector<RunUser> users{};
+    // 見ていた角色がいなくなったので、別の角色に替えた。
+    bool watchReplaced = false;
     // 載っていない節は Idle。
     std::unordered_map<uint32_t, NodeRun> nodes{};
 };
 
-// 樹は、部品が直接使っていても、他の樹に埋め込まれて（Subtree）走っていてもよい。埋め込んだ先の節の状態は、
-// 埋め込んだ Subtree の節にまとめて出る。
-RunView InspectRun(const OpenTree& tree, const EDITOR_PROJECT::IEditorSceneServices* scene);
+// 黒板の値を画面と run_state に出す文字。物体は user の World での名前。
+std::string ShowValue(const Value& value, const ITreeUser& user);
+
+// user が guid の樹を走らせているか（直接、または埋め込んで）。
+bool RunsTree(const ITreeUser& user, std::string_view guid);
+
+// 見る角色を決めて（場景の選択を追う、いなくなった角色を替える、誰も見ていなければ最初の角色）editor.Watch() に
+// 書き、その角色の様子を返す。埋め込んだ先の節の状態は、埋め込んだ Subtree の節にまとめて出る。
+RunView InspectRun(const OpenTree& tree, TreeEditor& editor);
 
 } // namespace HIKARI::BEHAVIOR::EDITING

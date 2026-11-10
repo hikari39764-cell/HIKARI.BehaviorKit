@@ -90,9 +90,9 @@ std::string TreeWorkspace::StatusLine(const OpenTree& tree, size_t problemCount,
         if (run.user == nullptr) {
             return line + "  |  Play: no object is running this tree";
         }
-        line += "  |  Play: showing " + std::string(run.user->OwnerName());
-        if (!run.followsSelection && run.userCount > 1u) {
-            line += " (1 of " + std::to_string(run.userCount) + "; select an object in the Scene to follow it)";
+        line += "  |  Play: watching " + std::string(run.user->OwnerName());
+        if (run.users.size() > 1u) {
+            line += " (1 of " + std::to_string(run.users.size()) + "; Alt + click another one in the game view)";
         }
         return line;
     }
@@ -134,6 +134,10 @@ void TreeWorkspace::DrawGraph(IEditorWorkspaceUi& ui, OpenTree& tree, const RunV
         const NodeType* type = registry.Find(source.type);
         const uint64_t id = source.id;
         details[index] = SummarizeParams(source, type, editor);
+        // 埋め込んだ樹の中で走っている葉（Subtree の節）。
+        if (const auto found = run.nodes.find(source.id); found != run.nodes.end() && !found->second.inside.empty()) {
+            details[index] += (details[index].empty() ? "" : "\n") + std::string("Now: ") + found->second.inside;
+        }
         badges[index] = BadgeOf(source.id, document.root, run);
         // 引脚の id：入力（親から）は 節 * 2、出力（子へ）は 節 * 2 + 1。
         pins[index * 2u].id = id * 2u;

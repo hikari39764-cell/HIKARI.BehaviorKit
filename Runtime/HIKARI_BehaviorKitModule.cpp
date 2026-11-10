@@ -135,7 +135,8 @@ public:
             ResetTree();
             return;
         }
-        if (update_ == UpdateMode::GameCode || !SyncTree()) {
+        // ゲームのコードが進める樹も、ここで読んでおく（編集器が、まだ進めていない角色も樹の上に出せるように）。
+        if (!SyncTree() || update_ == UpdateMode::GameCode) {
             return;
         }
         elapsed_ += deltaTime;
@@ -179,6 +180,9 @@ public:
     std::string_view OwnerName() const noexcept override { return object_.GetName(); }
     const std::string& TreeGuid() const noexcept override { return tree_; }
     const TreeInstance& Instance() const noexcept override { return instance_; }
+    std::string_view NameOf(GameProjectObjectHandle object) const noexcept override {
+        return world_.IsValid() ? world_.FindObject(object).GetName() : std::string_view{};
+    }
 
 private:
     // 置き場の今の樹に合わせる。樹が替わっていたら（資産を保存し直した、節の種類が増減した）、走っている節を

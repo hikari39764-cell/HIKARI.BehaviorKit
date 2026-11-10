@@ -21,11 +21,13 @@ struct ReadSink final : IEditorDocumentReadSink {
 };
 
 struct OperationSink final : IEditorOperationResultSink {
+    bool ok = false;
+    std::string message{};
     std::string data{};
-    void Receive(bool ok, std::string_view, std::string_view, std::string_view dataJson) override {
-        if (ok) {
-            data.assign(dataJson);
-        }
+    void Receive(bool succeeded, std::string_view, std::string_view text, std::string_view dataJson) override {
+        ok = succeeded;
+        message.assign(text);
+        data.assign(dataJson);
     }
 };
 
@@ -252,14 +254,19 @@ const std::string& TreeEditor::AssetName(std::string_view guid) {
         return known->second;
     }
     // 引擎の資産の一覧から、行動樹の資産の名前をまとめて覚える。
-    for (size_t offset = 0u; commands_ != nullptr;) {
-        OperationSink sink{};
-        commands_->ExecuteOperation(
-            "asset.query",
-            Json{{"type", "ModuleAsset"}, {"keyword", std::string(kTreeExtension)}, {"offset", offset}, {"limit", 128}}
-                .dump(),
-            sink);
-        const Json data = Json::parse(sink.data, nullptr, false);
+    for (size_t offset = 0u;;) {
+        std::string result{};
+        std::string message{};
+        if (!RunOperation("asset.query",
+                          Json{{"type", "ModuleAsset"},
+                               {"keyword", std::string(kTreeExtension)},
+                               {"offset", offset},
+                               {"limit", 128}}
+                              .dump(),
+                          result, message)) {
+            break;
+        }
+        const Json data = Json::parse(result, nullptr, false);
         if (!data.is_object()) {
             break;
         }
@@ -273,6 +280,19 @@ const std::string& TreeEditor::AssetName(std::string_view guid) {
     }
     // 一覧に無い資産（消された、まだ導入されていない）も覚えて、毎フレーム探し直さない。
     return names_.try_emplace(key, key.substr(0u, 8u)).first->second;
+}
+
+bool TreeEditor::RunOperation(std::string_view operationId, std::string_view parametersJson, std::string& dataJson,
+                              std::string& message) {
+    if (commands_ == nullptr) {
+        message = "The editor is not available.";
+        return false;
+    }
+    OperationSink sink{};
+    commands_->ExecuteOperation(operationId, parametersJson, sink);
+    dataJson = std::move(sink.data);
+    message = std::move(sink.message);
+    return sink.ok;
 }
 
 } // namespace HIKARI::BEHAVIOR::EDITING

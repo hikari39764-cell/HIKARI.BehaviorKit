@@ -55,6 +55,18 @@ private:
     uint64_t checkedRegistry_ = 0u;
 };
 
+// Play 中に図と変数の現在値で見せる角色。工具栏の下拉と behaviortree.watch が同じ物を書き換える。
+struct RunWatch {
+    // 見ている角色（無ければ、樹を使っている最初の角色を見る）。
+    GameProjectObjectHandle object{};
+    // 場景で選んだ角色を見る。
+    bool followSelection = true;
+    // 選んだ角色が別の樹を使っていても、今の樹から移らない。
+    bool pinned = false;
+    // 最後に見た場景の選択（選択が変わった時だけ追う）。
+    GameProjectObjectHandle lastSelection{};
+};
+
 class TreeEditor {
 public:
     // 編集器がモジュールを登録している間ずっと有効な窓口。
@@ -92,6 +104,11 @@ public:
     // 覚えた名前を捨てる（資産が増えた・名前が変わったかもしれない時）。
     void ForgetNames() noexcept { names_.clear(); }
 
+    RunWatch& Watch() noexcept { return watch_; }
+    // 引擎の編集器の操作（play.start、asset.query など）をその場で呼ぶ。断られたら false と理由。
+    bool RunOperation(std::string_view operationId, std::string_view parametersJson, std::string& dataJson,
+                      std::string& message);
+
 private:
     void Accept(OpenTree& tree, const EDITOR_PROJECT::EditorDocumentResult& result) noexcept;
     bool Reload(OpenTree& tree, std::string& error);
@@ -106,6 +123,7 @@ private:
     // どれかの樹の内容が変わる度に進む（埋め込んだ樹が変わると、埋め込む側の確認結果も変わる）。
     uint64_t epoch_ = 1u;
     std::unordered_map<std::string, std::string> names_{};
+    RunWatch watch_{};
 };
 
 } // namespace HIKARI::BEHAVIOR::EDITING

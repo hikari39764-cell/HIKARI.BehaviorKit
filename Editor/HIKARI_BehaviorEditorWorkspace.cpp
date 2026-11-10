@@ -25,6 +25,10 @@ EditorWorkspaceDescriptor TreeWorkspace::GetDescriptor() const {
     EditorWorkspaceDescriptor descriptor{};
     descriptor.workspaceId = kTreeWorkspaceId;
     descriptor.displayName = "Behavior Tree";
+    // 右上に游戏画面を置き、遊びながら樹を見る。撤销は樹の文書のまま（場景を書き換えない）。
+    descriptor.options = static_cast<uint32_t>(EditorWorkspaceOption::RequestSceneViewport) |
+                         static_cast<uint32_t>(EditorWorkspaceOption::OwnHistory);
+    descriptor.sceneViewportRegion = static_cast<uint32_t>(EditorWorkspaceDockRegion::Right);
     return descriptor;
 }
 
@@ -75,9 +79,15 @@ void TreeWorkspace::Draw(EditorWorkspaceHostContext& context) {
         status_ = editor.Step(*tree, redo) ? (redo ? "Redone." : "Undone.") : "Nothing to undo or redo.";
     }
 
+    frameSeconds_ = context.unscaledDeltaSeconds;
+    FollowSelectionToTree();
     DrawTrees(ui);
     OpenTree* tree = editor.Current();
-    const RunView run = tree != nullptr ? InspectRun(*tree, editor.Scene()) : RunView{};
+    const RunView run = tree != nullptr ? InspectRun(*tree, editor) : RunView{};
+    if (run.watchReplaced) {
+        status_ = "The watched character is gone. Now watching " + std::string(run.user->OwnerName()) + ".";
+    }
+    DrawPlayToolbar(ui, context.commands, run);
     if (ui.BeginPanel("graph", "Tree", nullptr, EditorWorkspaceDockRegion::Center)) {
         if (tree != nullptr) {
             DrawGraph(ui, *tree, run);
@@ -310,17 +320,7 @@ void TreeWorkspace::DrawBlackboard(IEditorWorkspaceUi& ui, OpenTree& tree, const
             }
         }
     }
-    if (run.user != nullptr) {
-        // Play 中は、見ている角色の今の値。
-        ui.Separator();
-        ui.Text("Now, on " + std::string(run.user->OwnerName()) + ":");
-        for (const DocumentKey& key : model.Document().blackboard) {
-            Value value{};
-            if (run.user->Instance().GetKey(key.name, value)) {
-                ui.Text("  " + key.name + " = " + FormatValue(value));
-            }
-        }
-    }
+    DrawRunValues(ui, tree, run);
 }
 
 void TreeWorkspace::DrawProblems(IEditorWorkspaceUi& ui, OpenTree* tree) {

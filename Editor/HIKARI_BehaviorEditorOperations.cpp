@@ -436,19 +436,77 @@ private:
                  });
     }
 
+    // 名前で角色を探して見る相手にする（Play 中、この樹を使っている角色だけ）。
+    void WatchByName(OpenTree& tree, const std::string& name) {
+        const RunView run = InspectRun(tree, *editor_);
+        const auto found = std::find_if(run.users.begin(), run.users.end(),
+                                        [&](const RunUser& entry) { return entry.user->OwnerName() == name; });
+        if (found == run.users.end()) {
+            throw Refusal{"NO_OBJECT",
+                          "No character named \"" + name + "\" runs this tree now (Play must be running)."};
+        }
+        editor_->Watch().object = found->user->OwnerHandle();
+    }
+
+    static Json DescribeUsers(const RunView& run) {
+        Json users = Json::array();
+        for (const RunUser& entry : run.users) {
+            users.push_back({{"name", std::string(entry.user->OwnerName())},
+                             {"started", entry.started},
+                             {"doing", entry.activity},
+                             {"watched", entry.user == run.user}});
+        }
+        return users;
+    }
+
     void RegisterRunState() {
+        // 見る相手は画面の状態で、樹の文書は変えない（撤销に積まない）。
+        Add("behaviortree.watch",
+            "During Play, choose which character the tree view and behaviortree.run_state follow (the same choice as "
+            "the Watch list in the workspace toolbar). follow: also follow the Scene selection. pin: stay on this "
+            "tree when the selected character uses another one.",
+            EditorOperationKind::Mutation, EditorOperationPermission::ModifyEditorState,
+            {{"object", Type::String, false, "Name of a character that runs this tree."},
+             {"follow", Type::Boolean, false, "Follow the Scene selection (default true)."},
+             {"pin", Type::Boolean, false, "Keep this tree open when following the selection."},
+             kTree},
+            [this](const Json& parameters) {
+                OpenTree& tree = TreeOf(parameters);
+                RunWatch& watch = editor_->Watch();
+                watch.followSelection = parameters.value("follow", watch.followSelection);
+                watch.pinned = parameters.value("pin", watch.pinned);
+                if (parameters.contains("object")) {
+                    WatchByName(tree, parameters["object"].get<std::string>());
+                }
+                const RunView run = InspectRun(tree, *editor_);
+                return Json{{"guid", tree.guid},
+                            {"follow", watch.followSelection},
+                            {"pin", watch.pinned},
+                            {"users", DescribeUsers(run)}};
+            });
         Query("behaviortree.run_state",
-              "During Play, read what one object running this tree is doing: the state of each node in the current "
-              "run of the tree (running, waiting for a child, success, failure, aborted; nodes not listed have not "
-              "run yet), whether it was updated in the latest tick, and the blackboard values. Follows the object "
-              "selected in the Scene, otherwise the first object that runs the tree.",
-              {kTree}, [this](const Json& parameters) {
+              "During Play, read what one character running this tree is doing: the state of each node in the "
+              "current run of the tree (running, waiting for a child, success, failure, aborted; nodes not listed "
+              "have not run yet), whether it was updated in the latest tick, and the blackboard values. Also lists "
+              "every character that uses the tree and what it is doing. Reads the watched character (see "
+              "behaviortree.watch), or the one named by object.",
+              {{"object", Type::String, false, "Name of a character to read instead of the watched one."}, kTree},
+              [this](const Json& parameters) {
                   OpenTree& tree = TreeOf(parameters);
                   const IEditorSceneServices* scene = editor_->Scene();
-                  const RunView run = InspectRun(tree, scene);
+                  // 名前で頼まれた時は、その時だけ見る相手を替えて読み、元に戻す。
+                  const GameProjectObjectHandle watched = editor_->Watch().object;
+                  if (parameters.contains("object")) {
+                      WatchByName(tree, parameters["object"].get<std::string>());
+                  }
+                  const RunView run = InspectRun(tree, *editor_);
+                  if (parameters.contains("object")) {
+                      editor_->Watch().object = watched;
+                  }
                   Json data{{"guid", tree.guid},
                             {"playing", scene != nullptr && scene->IsPlayActive()},
-                            {"objects", run.userCount}};
+                            {"objects", run.users.size()},
+                            {"users", DescribeUsers(run)}};
                   if (run.user == nullptr) {
                       return data;
                   }
@@ -474,11 +532,11 @@ private:
                       case ValueType::Vec3:
                           blackboard[key.name] = {value.vector.x, value.vector.y, value.vector.z};
                           break;
-                      default: blackboard[key.name] = value.object.IsValid() ? "(an object)" : "(none)"; break;
+                      default: blackboard[key.name] = ShowValue(value, *run.user); break;
                       }
                   }
                   data["object"] = std::string(run.user->OwnerName());
-                  data["followsSelection"] = run.followsSelection;
+                  data["followsSelection"] = editor_->Watch().followSelection;
                   data["nodes"] = std::move(nodes);
                   data["blackboard"] = std::move(blackboard);
                   return data;

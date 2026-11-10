@@ -124,6 +124,8 @@ public:
     bool RanInLastTick(uint32_t node) const noexcept {
         return tick_ != 0u && node < lastTick_.size() && lastTick_[node] == tick_;
     }
+    // 割り当ててから一度でも進めた。
+    bool HasStarted() const noexcept { return tick_ != 0u; }
 
 private:
     friend class TreeRunner;

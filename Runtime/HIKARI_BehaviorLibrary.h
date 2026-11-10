@@ -18,7 +18,7 @@ inline constexpr std::string_view kTreeAssetType = "HIKARI.BehaviorKit.Tree";
 
 // 樹を走らせている側（行動樹の部品）。節の種類が外される前に、走っている樹を止めてもらう。
 // TickByGame は、いつ進めるかをゲームのコードが決める部品を一回進める（BehaviorApi::tickObject の中身）。
-// 後ろの四つは編集器の表示用：どの物体が、どの樹を、今どこまで進めているか。
+// 後ろの五つは編集器の表示用：どの物体が、どの樹を、今どこまで進めているか、黒板の物体の名前。
 class ITreeUser {
 public:
     virtual void ResetTree() = 0;
@@ -27,6 +27,8 @@ public:
     virtual std::string_view OwnerName() const noexcept = 0;
     virtual const std::string& TreeGuid() const noexcept = 0;
     virtual const TreeInstance& Instance() const noexcept = 0;
+    // 持ち主と同じ World の物体の名前（無ければ空）。
+    virtual std::string_view NameOf(GameProjectObjectHandle object) const noexcept = 0;
 
 protected:
     ~ITreeUser() = default;
