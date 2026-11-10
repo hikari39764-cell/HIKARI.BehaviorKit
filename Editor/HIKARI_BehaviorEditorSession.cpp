@@ -328,6 +328,12 @@ bool TreeEditor::HasBreakpoint(std::string_view guid, uint32_t node) const noexc
                        [&](const Breakpoint& item) { return item.guid == guid && item.node == node; });
 }
 
+TreeEditor::Breakpoint* TreeEditor::FindBreakpoint(std::string_view guid, uint32_t node) noexcept {
+    const auto found = std::find_if(breakpoints_.begin(), breakpoints_.end(),
+                                    [&](const Breakpoint& item) { return item.guid == guid && item.node == node; });
+    return found != breakpoints_.end() ? &*found : nullptr;
+}
+
 bool TreeEditor::SetBreakpoint(std::string_view guid, uint32_t node, bool enabled) {
     if (HasBreakpoint(guid, node) == enabled) {
         return false;
@@ -369,23 +375,31 @@ void TreeEditor::OnNodeState(void* user, const TreeInstance& instance, uint32_t 
     }
     // 「次に考えたら止める」：その角色の樹で最初に進められた節（一番深い節から報告が来る）。
     const bool nextThink = editor.nextThink_ != nullptr && &editor.nextThink_->Instance() == &instance;
-    const bool continuing = from == NodeState::Running || from == NodeState::Waiting;
-    if (!nextThink && (continuing || to == NodeState::Idle)) {
+    if (!nextThink && (to == NodeState::Idle || editor.breakpoints_.empty())) {
         return;
     }
-    const CompiledNode& compiledNode = compiled->nodes[node];
-    std::string guid{};
-    if (compiledNode.sourceTree != 0u) {
-        guid = compiled->subtrees[compiledNode.sourceTree - 1u].reference;
-    } else {
-        for (const ITreeUser* owner : BehaviorLibrary::Get().Users()) {
-            if (&owner->Instance() == &instance) {
-                guid = owner->TreeGuid();
-                break;
-            }
+    const ITreeUser* owner = nullptr;
+    for (const ITreeUser* candidate : BehaviorLibrary::Get().Users()) {
+        if (&candidate->Instance() == &instance) {
+            owner = candidate;
+            break;
         }
     }
-    if (nextThink || editor.HasBreakpoint(guid, compiledNode.sourceId)) {
+    const CompiledNode& compiledNode = compiled->nodes[node];
+    std::string guid = compiledNode.sourceTree != 0u ? compiled->subtrees[compiledNode.sourceTree - 1u].reference
+                       : owner != nullptr            ? owner->TreeGuid()
+                                                     : std::string{};
+    bool hit = nextThink;
+    if (const Breakpoint* breakpoint = editor.FindBreakpoint(guid, compiledNode.sourceId); breakpoint != nullptr) {
+        // 走り始め：前が走っている・子を待っている以外（毎回確かめる条件の節は確かめる度）。成功・失敗：その結果を返した度。
+        const bool continuing = from == NodeState::Running || from == NodeState::Waiting;
+        const bool when = breakpoint->when == BreakWhen::Start     ? !continuing
+                          : breakpoint->when == BreakWhen::Success ? to == NodeState::Success
+                                                                   : to == NodeState::Failure;
+        const bool who = !breakpoint->watchedOnly || (owner != nullptr && owner->OwnerHandle() == editor.watch_.object);
+        hit = hit || (when && who);
+    }
+    if (hit) {
         editor.hit_ = {std::move(guid), compiledNode.sourceId};
         editor.hasHit_ = true;
         if (nextThink) {

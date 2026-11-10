@@ -379,6 +379,16 @@ void TreeWorkspace::DrawDetails(IEditorWorkspaceUi& ui, OpenTree* tree, const Ru
                     ui.Text(type->description);
                 }
                 ui.Separator();
+                // 断点がある節：いつ止めるかと、誰の時に止めるか。
+                if (TreeEditor::Breakpoint* breakpoint = editor_->FindBreakpoint(tree->guid, node->id)) {
+                    constexpr std::string_view kWhen[] = {"When it starts", "When it succeeds", "When it fails"};
+                    int32_t when = static_cast<int32_t>(breakpoint->when);
+                    if (ui.Combo("breakWhen", "Pause", kWhen, &when)) {
+                        breakpoint->when = static_cast<TreeEditor::BreakWhen>(std::clamp(when, 0, 2));
+                    }
+                    ui.Checkbox("breakWatched", "Only the watched character", &breakpoint->watchedOnly);
+                    ui.Separator();
+                }
                 DrawLabelFields(ui, *tree, *node);
                 const uint32_t ids[] = {node->id};
                 tree->pendingCommit = DrawNodeParams(ui, *tree, ids) || tree->pendingCommit;

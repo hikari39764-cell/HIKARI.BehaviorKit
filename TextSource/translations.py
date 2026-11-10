@@ -161,6 +161,9 @@ UI = {
     'Break': ('断点', '停止点'),
     'Paused: the tree just ran this node.': ('已暂停：树刚执行了这个节点。', '一時停止：ツリーがこのノードを実行したところです。'),
     'Think Next': ('想下一次', '次の思考まで'),
+    'When it starts': ('开始执行时', '始まった時'), 'When it succeeds': ('成功时', '成功した時'),
+    'When it fails': ('失败时', '失敗した時'),
+    'Only the watched character': ('只对观察的角色', '見ているキャラクターだけ'),
     "Run until the watched character's tree is ticked once more, then pause.": (
         '运行到观察的角色的树下一次被推进，然后暂停。', '見ているキャラクターのツリーが次に進むまで実行して一時停止します。'),
     'Now': ('现在', '現在'), 'Now: the values of {0}.': ('“现在”列是 {0} 的当前值。', '「現在」の列は {0} の今の値です。'),

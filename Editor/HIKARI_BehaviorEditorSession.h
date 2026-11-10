@@ -129,11 +129,22 @@ public:
     RunWatch& Watch() noexcept { return watch_; }
 
     // ---- 断点：樹（GUID）の節が走り始めたら Play を一時停止する。樹のファイルには書かない ----
+    // いつ止めるか：走り始めた時、成功した時、失敗した時。
+    enum class BreakWhen : uint8_t {
+        Start,
+        Success,
+        Failure,
+    };
     struct Breakpoint {
         std::string guid{};
         uint32_t node = 0u;
+        BreakWhen when = BreakWhen::Start;
+        // 見ている角色の時だけ止める（偽なら、この樹を使うどの角色でも）。
+        bool watchedOnly = false;
     };
     bool HasBreakpoint(std::string_view guid, uint32_t node) const noexcept;
+    // 断点の設定（無ければ nullptr）。条件と範囲はこれを書き換える。
+    Breakpoint* FindBreakpoint(std::string_view guid, uint32_t node) noexcept;
     // 変わった時に true。
     bool SetBreakpoint(std::string_view guid, uint32_t node, bool enabled);
     size_t BreakpointCount() const noexcept { return breakpoints_.size(); }

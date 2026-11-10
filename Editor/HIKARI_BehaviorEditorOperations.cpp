@@ -521,11 +521,22 @@ private:
             EditorOperationKind::Mutation, EditorOperationPermission::ModifyEditorState,
             {{"node", Type::Integer, true, "Id of the node."},
              {"enabled", Type::Boolean, false, "false to remove (default true)."},
+             {"when", Type::String, false, "start (default), success or failure."},
+             {"watchedOnly", Type::Boolean, false, "Only for the watched character (default false: any character)."},
              kTree},
             [this](const Json& parameters) {
                 OpenTree& tree = TreeOf(parameters);
                 const uint32_t node = NodeOf(tree, parameters, "node").id;
                 editor_->SetBreakpoint(tree.guid, node, parameters.value("enabled", true));
+                if (TreeEditor::Breakpoint* breakpoint = editor_->FindBreakpoint(tree.guid, node)) {
+                    const std::string when = parameters.value("when", std::string("start"));
+                    Require(when == "start" || when == "success" || when == "failure",
+                            "when must be start, success or failure.");
+                    breakpoint->when = when == "success"   ? TreeEditor::BreakWhen::Success
+                                       : when == "failure" ? TreeEditor::BreakWhen::Failure
+                                                           : TreeEditor::BreakWhen::Start;
+                    breakpoint->watchedOnly = parameters.value("watchedOnly", false);
+                }
                 return Json{{"breakpoints", editor_->BreakpointCount()}};
             });
         Mutation("behaviortree.set_name",
