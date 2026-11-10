@@ -20,7 +20,8 @@ HIKARI 引擎的行为树模块：角色按一棵“行为树”决定现在做�
 %HIKARI_SDK_ROOT%\Tools\CMake\bin\cmake.exe --build --preset editor-release
 ```
 
-插件包出在 `Library/Plugins/HIKARI.BehaviorKit/`：清单、`HIKARI_BehaviorKit.dll`、`Public/`（给登记节点的代码用的头文件）。
+插件包出在 `Library/Plugins/HIKARI.BehaviorKit/`：清单、`HIKARI_BehaviorKit.dll`、`Public/`（给登记节点的代码用的头文件，
+清单的 `publicIncludeDirectories` 声明了它，所以启用本模块的项目不用自己写包含路径）。
 编辑器部分和运行部分在同一个 DLL 里（编辑器要直接读节点表和正在跑的树）。
 发行版的库用 `game-shipping` 预设，这时 `HIKARI_SDK_ROOT` 指向引擎的 `Runtime/Shipping/Sdk`，库出在同一个包的 `Shipping/` 下，
 里面没有编辑器部分。
@@ -33,7 +34,8 @@ HIKARI 引擎的行为树模块：角色按一棵“行为树”决定现在做�
   直接拷贝，或者 `git submodule add <仓库地址> Plugins/HIKARI.BehaviorKit`。从启动器打开项目时，引擎用自己的 SDK
   把模块编出来，放在项目的 `Library/Plugins/` 下（不进 Git）。以后不用再管：模块的源码变了，或者引擎改到了
   模块用到的头文件，下次打开项目时自动重编；别的情况直接用上次编好的。
-- **放编好的插件包**（给没有编译器的人）：把构建出的 `Library/Plugins/HIKARI.BehaviorKit` 文件夹放进项目的 `Plugins/`。
+- **放编好的插件包**：把构建出的 `Library/Plugins/HIKARI.BehaviorKit` 文件夹放进项目的 `Plugins/`，或者放进引擎的
+  `Runtime/Modules/`（跟引擎一起发给队友时用这个，游戏仓库里就什么模块文件都不用放）。
 
 然后在编辑器的 Project Features 里勾选 Behavior Kit，重新打开项目。给角色加组件 **Behavior Tree**：
 
@@ -149,10 +151,12 @@ Play 中改树并保存，正在跑的角色马上换成新的树（从头开始
 
 ## 登记自己的节点
 
-游戏项目或别的模块只要包含插件包里的一个头文件，不用链接任何库：
+游戏项目只要包含模块的一个头文件，不用链接任何库，也不用在 `CMakeLists.txt` 里写包含路径：项目启用了本模块，
+项目的构建就会把这个头文件所在的目录加进去（模块放在项目的 `Plugins/` 里还是引擎的 `Runtime/Modules/` 里都一样）。
+别的模块要用时，自己把 `Public` 加进包含目录。
 
 ```cpp
-#include "HIKARI/BehaviorKit/BehaviorNodeApi.h"   // 包含目录加上 Plugins/HIKARI.BehaviorKit/Public
+#include "HIKARI/BehaviorKit/BehaviorNodeApi.h"
 
 using namespace HIKARI::BEHAVIOR;
 
