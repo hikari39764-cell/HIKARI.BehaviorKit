@@ -9,7 +9,7 @@ if(NOT WIN32 OR NOT MSVC OR NOT CMAKE_SIZEOF_VOID_P EQUAL 8)
     message(FATAL_ERROR "HIKARI modules require x64 Visual Studio 2022.")
 endif()
 
-find_package(HIKARI 4.20.0 CONFIG REQUIRED)
+find_package(HIKARI 4.21.0 CONFIG REQUIRED)
 
 # 行動樹の核：樹のファイル、節の種類の表、編訳、実行器。引擎の関数を呼ばない（行動テストが DLL 無しで使う）。
 file(GLOB_RECURSE behaviorkit_core_sources CONFIGURE_DEPENDS LIST_DIRECTORIES false
