@@ -225,6 +225,7 @@ void TreeWorkspace::DrawGraph(IEditorWorkspaceUi& ui, OpenTree& tree, const RunV
     RefreshTypes();
     const std::vector<Problem>& problems = editor.Problems(tree);
 
+    DrawTrail(ui, tree);
     if (ui.Button("frame", "Frame All")) {
         tree.frameAll = true;
     }
@@ -780,7 +781,7 @@ void TreeWorkspace::ApplyGraphResult(IEditorWorkspaceUi& ui, OpenTree& tree, con
         const NodeType* type = registry.Find(activated->type);
         if (type != nullptr && type->builtin == BuiltinKind::Subtree && !activated->params.empty() &&
             activated->params.front().isText) {
-            Open(std::string(activated->params.front().text));
+            OpenSubtree(tree, activated->params.front().text);
         }
     }
 }

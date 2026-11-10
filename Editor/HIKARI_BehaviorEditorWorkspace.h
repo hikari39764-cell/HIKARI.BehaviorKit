@@ -46,6 +46,10 @@ public:
 
 private:
     void Open(std::string_view guid);
+    // Subtree の節から埋め込んだ樹を開く（来た道を覚える）。
+    void OpenSubtree(const OpenTree& from, std::string_view guid);
+    // 札の下の道筋（Subtree から入った時だけ）。
+    void DrawTrail(EDITOR_PROJECT::IEditorWorkspaceUi& ui, const OpenTree& tree);
     // tree.model を書き換えた後：一手として積む。message は画面に出す知らせ。
     void Commit(OpenTree& tree, Message message = {});
     // 節の種類を、Composite、Decorator、他の分類の順に並べる（図の献立と左の一覧が同じ並び）。
@@ -106,6 +110,10 @@ private:
     bool openNewTree_ = false;
     // 札に出している樹と、樹が札の外で替わった時に札を合わせ直す残りのフレーム。
     std::string shownTab_{};
+    // Subtree から入って来た道（樹の GUID、最初が出発した樹）と、最近開いた樹（新しい順）。
+    std::vector<std::string> trail_{};
+    static constexpr size_t kRecentTrees = 6u;
+    std::vector<std::string> recentTrees_{};
     uint32_t forceTabFrames_ = 0u;
     // 消そうとしている、まだ使われているキー。
     std::string removeKeyName_{};

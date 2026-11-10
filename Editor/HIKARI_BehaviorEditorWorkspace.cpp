@@ -125,7 +125,52 @@ void TreeWorkspace::Draw(EditorWorkspaceHostContext& context) {
 
 void TreeWorkspace::Open(std::string_view guid) {
     std::string message{};
-    status_ = editor_->Open(guid, message) != nullptr ? Message{} : Message{"Could not open the tree: {0}", {message}};
+    if (editor_->Open(guid, message) == nullptr) {
+        status_ = {"Could not open the tree: {0}", {message}};
+        return;
+    }
+    status_ = {};
+    // 最近開いた樹（新しい順）。札の「+」の献立に出す。
+    std::erase(recentTrees_, std::string(guid));
+    recentTrees_.insert(recentTrees_.begin(), std::string(guid));
+    if (recentTrees_.size() > kRecentTrees) {
+        recentTrees_.resize(kRecentTrees);
+    }
+}
+
+void TreeWorkspace::OpenSubtree(const OpenTree& from, std::string_view guid) {
+    // 道筋：今の樹が道筋の末尾でなければ、今の樹から始め直す。
+    if (trail_.empty() || trail_.back() != from.guid) {
+        trail_.assign(1u, from.guid);
+    }
+    Open(guid);
+    if (const OpenTree* current = editor_->Current(); current != nullptr && current->guid == guid) {
+        trail_.push_back(std::string(guid));
+    }
+}
+
+void TreeWorkspace::DrawTrail(IEditorWorkspaceUi& ui, const OpenTree& tree) {
+    // Subtree から入って来た時だけ、来た道を出す（押すとそこへ戻る）。
+    if (trail_.size() < 2u || trail_.back() != tree.guid) {
+        return;
+    }
+    for (size_t index = 0u; index < trail_.size(); ++index) {
+        const OpenTree* step = editor_->Find(trail_[index]);
+        const std::string name = step != nullptr ? step->name : editor_->AssetName(trail_[index]);
+        if (index != 0u) {
+            ui.SameLine();
+            ui.Text(Verbatim(">"));
+            ui.SameLine();
+        }
+        if (index + 1u == trail_.size()) {
+            ui.Text(Verbatim(name));
+        } else if (ui.Button("trail." + std::to_string(index), Verbatim(name))) {
+            const std::string guid = trail_[index];
+            trail_.resize(index + 1u);
+            Open(guid);
+            return;
+        }
+    }
 }
 
 void TreeWorkspace::Commit(OpenTree& tree, Message message) {
@@ -386,6 +431,23 @@ void TreeWorkspace::DrawTabs(IEditorWorkspaceUi& ui) {
             ui.CloseCurrentPopup();
         }
         ui.Tooltip("Pick a behavior tree asset to open it.");
+        // 最近開いた樹（もう開いている物は除く）。
+        bool heading = false;
+        for (const std::string& recent : recentTrees_) {
+            if (editor.Find(recent) != nullptr) {
+                continue;
+            }
+            if (!heading) {
+                ui.Separator();
+                ui.Text("Recently Opened");
+                heading = true;
+            }
+            if (ui.Selectable("recent." + recent, Verbatim(editor.AssetName(recent)))) {
+                Open(recent);
+                ui.CloseCurrentPopup();
+                break;
+            }
+        }
         ui.EndPopup();
     }
     if (openNewTree_) {

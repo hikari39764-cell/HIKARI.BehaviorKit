@@ -153,6 +153,7 @@ UI = {
     'Put under {0} as its last child': ('放到 {0} 下面，作为最后一个子节点', '{0} の最後の子として置く'),
     'Name': ('名字', '名前'), 'Note': ('备注', 'メモ'),
     'Shortcut': ('快捷键', 'ショートカット'),
+    'Recently Opened': ('最近打开', '最近開いた'),
     '{0} ({1})': ('{0}（{1}）', '{0}（{1}）'),
     's': ('秒', '秒'), 'm': ('米', 'm'), 'm/s': ('米/秒', 'm/秒'),
     'Start again from the first child every tick, so an earlier child can take over.': (
