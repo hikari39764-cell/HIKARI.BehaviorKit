@@ -266,11 +266,15 @@ Status TickWriteVariable(INodeContext& context, void*, void*) noexcept {
 
 void RegisterWorldNodes(BehaviorLibrary& library) {
     const void* owner = &library;
-    constexpr ParamDesc kMoveObjectParams[] = {{"target", ValueType::Object, "Target"},
-                                               {"speed", ValueType::Float, "Speed", 3.0},
-                                               {"arriveDistance", ValueType::Float, "Arrive Distance", 0.5},
-                                               {"faceMovement", ValueType::Bool, "Face Movement", 1.0},
-                                               {"useNavigation", ValueType::Bool, "Use Navigation", 0.0}};
+    constexpr ParamDesc kMoveObjectParams[] = {
+        {"target", ValueType::Object, "Target", 0.0, nullptr, false, nullptr, "The object to go to."},
+        {"speed", ValueType::Float, "Speed", 3.0, nullptr, false, nullptr, "How fast to move.", 0.0, 20.0, "m/s"},
+        {"arriveDistance", ValueType::Float, "Arrive Distance", 0.5, nullptr, false, nullptr,
+         "Close enough to count as arrived.", 0.0, 10.0, "m"},
+        {"faceMovement", ValueType::Bool, "Face Movement", 1.0, nullptr, false, nullptr,
+         "Turn to face the direction of movement."},
+        {"useNavigation", ValueType::Bool, "Use Navigation", 0.0, nullptr, false, nullptr,
+         "Follow a path around obstacles instead of a straight line."}};
     NodeTypeDesc moveToObject{};
     moveToObject.typeName = "MoveToObject";
     moveToObject.displayName = "Move To Object";
@@ -284,11 +288,15 @@ void RegisterWorldNodes(BehaviorLibrary& library) {
     moveToObject.tick = &TickMoveToObject;
     library.RegisterNodeType(moveToObject, owner);
 
-    constexpr ParamDesc kMovePositionParams[] = {{"target", ValueType::Vec3, "Target"},
-                                                 {"speed", ValueType::Float, "Speed", 3.0},
-                                                 {"arriveDistance", ValueType::Float, "Arrive Distance", 0.5},
-                                                 {"faceMovement", ValueType::Bool, "Face Movement", 1.0},
-                                                 {"useNavigation", ValueType::Bool, "Use Navigation", 0.0}};
+    constexpr ParamDesc kMovePositionParams[] = {
+        {"target", ValueType::Vec3, "Target", 0.0, nullptr, false, nullptr, "The position to go to."},
+        {"speed", ValueType::Float, "Speed", 3.0, nullptr, false, nullptr, "How fast to move.", 0.0, 20.0, "m/s"},
+        {"arriveDistance", ValueType::Float, "Arrive Distance", 0.5, nullptr, false, nullptr,
+         "Close enough to count as arrived.", 0.0, 10.0, "m"},
+        {"faceMovement", ValueType::Bool, "Face Movement", 1.0, nullptr, false, nullptr,
+         "Turn to face the direction of movement."},
+        {"useNavigation", ValueType::Bool, "Use Navigation", 0.0, nullptr, false, nullptr,
+         "Follow a path around obstacles instead of a straight line."}};
     NodeTypeDesc moveToPosition = moveToObject;
     moveToPosition.typeName = "MoveToPosition";
     moveToPosition.displayName = "Move To Position";
@@ -299,8 +307,10 @@ void RegisterWorldNodes(BehaviorLibrary& library) {
     moveToPosition.tick = &TickMoveToPosition;
     library.RegisterNodeType(moveToPosition, owner);
 
-    constexpr ParamDesc kObjectNearParams[] = {{"target", ValueType::Object, "Target"},
-                                               {"distance", ValueType::Float, "Distance", 5.0}};
+    constexpr ParamDesc kObjectNearParams[] = {
+        {"target", ValueType::Object, "Target", 0.0, nullptr, false, nullptr, "The object to go to."},
+        {"distance", ValueType::Float, "Distance", 5.0, nullptr, false, nullptr,
+         "Succeeds when the target is within this distance.", 0.0, 50.0, "m"}};
     NodeTypeDesc isObjectNear{};
     isObjectNear.kind = NodeKind::Condition;
     isObjectNear.typeName = "IsObjectNear";
@@ -313,8 +323,10 @@ void RegisterWorldNodes(BehaviorLibrary& library) {
     isObjectNear.tick = &TickIsObjectNear;
     library.RegisterNodeType(isObjectNear, owner);
 
-    constexpr ParamDesc kPositionNearParams[] = {{"target", ValueType::Vec3, "Target"},
-                                                 {"distance", ValueType::Float, "Distance", 5.0}};
+    constexpr ParamDesc kPositionNearParams[] = {
+        {"target", ValueType::Vec3, "Target", 0.0, nullptr, false, nullptr, "The position to go to."},
+        {"distance", ValueType::Float, "Distance", 5.0, nullptr, false, nullptr,
+         "Succeeds when the target is within this distance.", 0.0, 50.0, "m"}};
     NodeTypeDesc isPositionNear = isObjectNear;
     isPositionNear.typeName = "IsPositionNear";
     isPositionNear.displayName = "Is Position Near";
@@ -324,8 +336,9 @@ void RegisterWorldNodes(BehaviorLibrary& library) {
     isPositionNear.tick = &TickIsPositionNear;
     library.RegisterNodeType(isPositionNear, owner);
 
-    constexpr ParamDesc kFindParams[] = {{"name", ValueType::Text, "Name"},
-                                         {"result", ValueType::Object, "Result", 0.0, nullptr, true}};
+    constexpr ParamDesc kFindParams[] = {
+        {"name", ValueType::Text, "Name", 0.0, nullptr, false, nullptr, "The name of the object to find."},
+        {"result", ValueType::Object, "Result", 0.0, nullptr, true, nullptr, "The variable that receives the object."}};
     NodeTypeDesc findObject{};
     findObject.typeName = "FindObject";
     findObject.displayName = "Find Object";
@@ -337,10 +350,13 @@ void RegisterWorldNodes(BehaviorLibrary& library) {
     findObject.tick = &TickFindObject;
     library.RegisterNodeType(findObject, owner);
 
-    constexpr ParamDesc kAnimationParams[] = {{"clip", ValueType::Text, "Clip"},
-                                              {"blendSeconds", ValueType::Float, "Blend Seconds", 0.15},
-                                              {"loop", ValueType::Bool, "Loop", 0.0},
-                                              {"waitUntilFinished", ValueType::Bool, "Wait Until Finished", 1.0}};
+    constexpr ParamDesc kAnimationParams[] = {
+        {"clip", ValueType::Text, "Clip", 0.0, nullptr, false, nullptr, "Animation clip name."},
+        {"blendSeconds", ValueType::Float, "Blend Seconds", 0.15, nullptr, false, nullptr,
+         "Time to blend from the previous animation.", 0.0, 2.0, "s"},
+        {"loop", ValueType::Bool, "Loop", 0.0, nullptr, false, nullptr, "Play the clip again and again."},
+        {"waitUntilFinished", ValueType::Bool, "Wait Until Finished", 1.0, nullptr, false, nullptr,
+         "Keep running until the clip ends."}};
     NodeTypeDesc playAnimation{};
     playAnimation.typeName = "PlayAnimation";
     playAnimation.displayName = "Play Animation";
@@ -354,9 +370,10 @@ void RegisterWorldNodes(BehaviorLibrary& library) {
     playAnimation.tick = &TickPlayAnimation;
     library.RegisterNodeType(playAnimation, owner);
 
-    constexpr ParamDesc kEventParams[] = {{"event", ValueType::Text, "Event"},
-                                          {"withValue", ValueType::Bool, "Send Value", 0.0},
-                                          {"value", ValueType::Any, "Value", 0.0}};
+    constexpr ParamDesc kEventParams[] = {
+        {"event", ValueType::Text, "Event", 0.0, nullptr, false, nullptr, "The event name to send."},
+        {"withValue", ValueType::Bool, "Send Value", 0.0, nullptr, false, nullptr, "Send Value along with the event."},
+        {"value", ValueType::Any, "Value", 0.0, nullptr, false, nullptr, "The value to send or write."}};
     NodeTypeDesc emitEvent{};
     emitEvent.typeName = "EmitEvent";
     emitEvent.displayName = "Emit Event";
@@ -368,9 +385,12 @@ void RegisterWorldNodes(BehaviorLibrary& library) {
     emitEvent.tick = &TickEmitEvent;
     library.RegisterNodeType(emitEvent, owner);
 
-    constexpr ParamDesc kReadParams[] = {{"variable", ValueType::Text, "Variable"},
-                                         {"world", ValueType::Bool, "World Variable", 0.0},
-                                         {"result", ValueType::Any, "Result", 0.0, nullptr, true}};
+    constexpr ParamDesc kReadParams[] = {{"variable", ValueType::Text, "Variable", 0.0, nullptr, false, nullptr,
+                                          "The variable id on the object or the world."},
+                                         {"world", ValueType::Bool, "World Variable", 0.0, nullptr, false, nullptr,
+                                          "Read the world variable instead of the object variable."},
+                                         {"result", ValueType::Any, "Result", 0.0, nullptr, true, nullptr,
+                                          "The blackboard variable that receives the value."}};
     NodeTypeDesc readVariable{};
     readVariable.typeName = "ReadVariable";
     readVariable.displayName = "Read Variable";
@@ -382,8 +402,10 @@ void RegisterWorldNodes(BehaviorLibrary& library) {
     readVariable.tick = &TickReadVariable;
     library.RegisterNodeType(readVariable, owner);
 
-    constexpr ParamDesc kWriteParams[] = {{"variable", ValueType::Text, "Variable"},
-                                          {"value", ValueType::Any, "Value", 0.0}};
+    constexpr ParamDesc kWriteParams[] = {
+        {"variable", ValueType::Text, "Variable", 0.0, nullptr, false, nullptr,
+         "The variable id on the object or the world."},
+        {"value", ValueType::Any, "Value", 0.0, nullptr, false, nullptr, "The value to send or write."}};
     NodeTypeDesc writeVariable{};
     writeVariable.typeName = "WriteVariable";
     writeVariable.displayName = "Write Variable";

@@ -85,7 +85,8 @@ float ScoreOf(INodeContext& context, void*) noexcept { return context.ParamFloat
 
 void RegisterCoreNodes(NodeRegistry& registry) {
     std::string error{};
-    constexpr ParamDesc kWaitParams[] = {{"seconds", ValueType::Float, "Seconds", 1.0}};
+    constexpr ParamDesc kWaitParams[] = {
+        {"seconds", ValueType::Float, "Seconds", 1.0, nullptr, false, nullptr, "How long to wait.", 0.0, 10.0, "s"}};
     NodeTypeDesc wait{};
     wait.typeName = "Wait";
     wait.displayName = "Wait";
@@ -98,8 +99,9 @@ void RegisterCoreNodes(NodeRegistry& registry) {
     wait.progress = &WaitProgress;
     registry.Register(wait, &registry, error);
 
-    constexpr ParamDesc kSetParams[] = {{"key", ValueType::Any, "Key", 0.0, nullptr, true},
-                                        {"value", ValueType::Any, "Value", 0.0}};
+    constexpr ParamDesc kSetParams[] = {
+        {"key", ValueType::Any, "Key", 0.0, nullptr, true, nullptr, "The blackboard variable to write."},
+        {"value", ValueType::Any, "Value", 0.0, nullptr, false, nullptr, "The value to write, or another variable."}};
     NodeTypeDesc set{};
     set.typeName = "SetVariable";
     set.displayName = "Set Variable";
@@ -110,9 +112,11 @@ void RegisterCoreNodes(NodeRegistry& registry) {
     set.tick = &TickSetVariable;
     registry.Register(set, &registry, error);
 
-    constexpr ParamDesc kCheckParams[] = {{"value", ValueType::Any, "Value", 0.0},
-                                          {"op", ValueType::Text, "Compare", 0.0, "set", false, "set|==|!=|<|<=|>|>="},
-                                          {"other", ValueType::Any, "Other", 0.0}};
+    constexpr ParamDesc kCheckParams[] = {
+        {"value", ValueType::Any, "Value", 0.0, nullptr, false, nullptr, "The value to check, usually a variable."},
+        {"op", ValueType::Text, "Compare", 0.0, "set", false,
+         "set|==|!=|<|<=|>|>=", "How to compare. set: Value holds something."},
+        {"other", ValueType::Any, "Other", 0.0, nullptr, false, nullptr, "What to compare Value with."}};
     NodeTypeDesc check{};
     check.kind = NodeKind::Condition;
     check.typeName = "CheckVariable";
@@ -125,7 +129,8 @@ void RegisterCoreNodes(NodeRegistry& registry) {
     check.tick = &TickCheckVariable;
     registry.Register(check, &registry, error);
 
-    constexpr ParamDesc kChanceParams[] = {{"chance", ValueType::Float, "Chance", 0.5}};
+    constexpr ParamDesc kChanceParams[] = {{"chance", ValueType::Float, "Chance", 0.5, nullptr, false, nullptr,
+                                            "Probability of success: 0 never, 1 always.", 0.0, 1.0}};
     NodeTypeDesc chance{};
     chance.kind = NodeKind::Condition;
     chance.typeName = "Chance";
@@ -138,7 +143,8 @@ void RegisterCoreNodes(NodeRegistry& registry) {
     chance.tick = &TickChance;
     registry.Register(chance, &registry, error);
 
-    constexpr ParamDesc kScoreParams[] = {{"score", ValueType::Float, "Score", 1.0}};
+    constexpr ParamDesc kScoreParams[] = {{"score", ValueType::Float, "Score", 1.0, nullptr, false, nullptr,
+                                           "Higher scores go first. 0 or less sits out."}};
     NodeTypeDesc score{};
     score.kind = NodeKind::Decorator;
     score.typeName = "Score";

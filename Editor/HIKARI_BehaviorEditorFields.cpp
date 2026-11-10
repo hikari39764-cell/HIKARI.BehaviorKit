@@ -116,10 +116,18 @@ private:
         const bool keyOnly = spec.output || spec.type == ValueType::Object;
         ui_.TableNextRow();
         ui_.TableNextColumn();
-        // 既定値から変えた参数は名前の後ろに印。
-        ui_.Text(written != node->params.end() ? FormatText(ui_, "{0} *", {ui_.Translate(spec.label)}) : spec.label);
+        // 名前（単位があれば添えて）、既定値から変えた参数は後ろに印。鼠標を乗せると説明。
+        std::string name = std::string(ui_.Translate(spec.label));
+        if (!spec.unit.empty()) {
+            name = FormatText(ui_, "{0} ({1})", {name, ui_.Translate(spec.unit)}).substr(1u);
+        }
+        ui_.Text(Verbatim(written != node->params.end() ? name + " *" : name));
+        std::string tip = spec.description.empty() ? std::string{} : std::string(ui_.Translate(spec.description));
         if (written != node->params.end()) {
-            ui_.Tooltip("Changed from the default.");
+            tip += (tip.empty() ? "" : "\n") + std::string(ui_.Translate("Changed from the default."));
+        }
+        if (!tip.empty()) {
+            ui_.Tooltip(Verbatim(tip));
         }
         ui_.TableNextColumn();
         if (keyOnly || param.isKey) {
@@ -265,7 +273,11 @@ private:
         if (!AssignValue(value, param.literal)) {
             value.vector = {};
         }
-        if (ValueControl(ui_, id, value)) {
+        // 範囲のある小数は滑条（Ctrl + クリックで打ち込める）。
+        const bool slider = value.type == ValueType::Float && spec.maximum > spec.minimum;
+        if (slider ? ui_.SliderFloat(id, Verbatim("##" + id), &value.number, static_cast<float>(spec.minimum),
+                                     static_cast<float>(spec.maximum))
+                   : ValueControl(ui_, id, value)) {
             WriteLiteral(spec, value);
         }
     }

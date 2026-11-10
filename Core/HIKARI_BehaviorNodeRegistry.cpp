@@ -23,9 +23,20 @@ std::vector<std::string> SplitChoices(const char* text) {
 } // namespace
 
 NodeRegistry::NodeRegistry() {
-    const ParamSpec reactive{"reactive", ValueType::Bool, "Reactive", 0.0, {}, false};
+    const ParamSpec reactive{
+        "reactive", ValueType::Bool,
+        "Reactive", 0.0,
+        {},         false,
+        {},         "Start again from the first child every tick, so an earlier child can take over."};
     // 子を回す順。Sequence / Selector は 1 番、Parallel は 1 番の参数（実行器がその番号で読む）。
-    const ParamSpec order{"order", ValueType::Text, "Order", 0.0, "fixed", false, {"fixed", "random", "utility"}};
+    const ParamSpec order{"order",
+                          ValueType::Text,
+                          "Order",
+                          0.0,
+                          "fixed",
+                          false,
+                          {"fixed", "random", "utility"},
+                          "Which child goes first: left to right, shuffled, or highest Score first."};
     AddBuiltin("Sequence", "Sequence",
                "Runs its children in order and fails at the first one that fails. Reactive: every tick starts "
                "again from the first child, so an earlier condition can interrupt a later action. Order: fixed "
@@ -45,23 +56,56 @@ NodeRegistry::NodeRegistry() {
                "Policy \"any\": succeeds when one succeeds, fails when all fail. Order random or utility: "
                "children run in that order within a tick, and a child whose Score is 0 or less sits out.",
                BuiltinKind::Parallel,
-               {{"policy", ValueType::Text, "Policy", 0.0, "all", false, {"all", "any"}}, order});
+               {{"policy",
+                 ValueType::Text,
+                 "Policy",
+                 0.0,
+                 "all",
+                 false,
+                 {"all", "any"},
+                 "all: succeed when every child succeeds. any: succeed when one child succeeds."},
+                order});
     AddBuiltin("Inverter", "Inverter", "Turns its child's success into failure and failure into success.",
                BuiltinKind::Inverter, {});
     AddBuiltin("ForceSuccess", "Force Success", "Succeeds when its child finishes, whatever the result.",
                BuiltinKind::ForceSuccess, {});
     AddBuiltin("ForceFailure", "Force Failure", "Fails when its child finishes, whatever the result.",
                BuiltinKind::ForceFailure, {});
-    AddBuiltin("Repeat", "Repeat",
-               "Runs its child again each time it succeeds, Count times (0 = forever). Fails when the child fails.",
-               BuiltinKind::Repeat, {{"count", ValueType::Int, "Count", 0.0, {}, false}});
+    AddBuiltin(
+        "Repeat", "Repeat",
+        "Runs its child again each time it succeeds, Count times (0 = forever). Fails when the child fails.",
+        BuiltinKind::Repeat,
+        {{"count", ValueType::Int, "Count", 0.0, {}, false, {}, "How many times to run the child. 0 = forever."}});
     AddBuiltin("Cooldown", "Cooldown", "After its child finishes, fails without running it for Seconds.",
-               BuiltinKind::Cooldown, {{"seconds", ValueType::Float, "Seconds", 1.0, {}, false}});
+               BuiltinKind::Cooldown,
+               {{"seconds",
+                 ValueType::Float,
+                 "Seconds",
+                 1.0,
+                 {},
+                 false,
+                 {},
+                 "How long to wait before running again.",
+                 0.0,
+                 30.0,
+                 "s"}});
     AddBuiltin("TimeLimit", "Time Limit", "Stops its child and fails when the child runs longer than Seconds.",
-               BuiltinKind::TimeLimit, {{"seconds", ValueType::Float, "Seconds", 1.0, {}, false}});
+               BuiltinKind::TimeLimit,
+               {{"seconds",
+                 ValueType::Float,
+                 "Seconds",
+                 1.0,
+                 {},
+                 false,
+                 {},
+                 "Longest time the child may run.",
+                 0.0,
+                 30.0,
+                 "s"}});
     AddBuiltin("Subtree", "Subtree",
                "Runs another tree asset in place of this node. Blackboard keys with the same name are shared.",
-               BuiltinKind::Subtree, {{"tree", ValueType::Text, "Tree", 0.0, {}, false}});
+               BuiltinKind::Subtree,
+               {{"tree", ValueType::Text, "Tree", 0.0, {}, false, {}, "The behavior tree asset to run here."}});
     RegisterCoreNodes(*this);
 }
 
@@ -132,7 +176,11 @@ bool NodeRegistry::Register(const NodeTypeDesc& desc, const void* owner, std::st
                        param.defaultNumber,
                        TextOrEmpty(param.defaultText),
                        param.output,
-                       SplitChoices(param.choices)};
+                       SplitChoices(param.choices),
+                       TextOrEmpty(param.description),
+                       param.minimum,
+                       param.maximum,
+                       TextOrEmpty(param.unit)};
         if (!spec.choices.empty() &&
             (param.type != ValueType::Text ||
              std::find(spec.choices.begin(), spec.choices.end(), spec.defaultText) == spec.choices.end())) {

@@ -81,6 +81,15 @@ Json DescribeType(const NodeType& type) {
         if (!spec.choices.empty()) {
             param["choices"] = spec.choices;
         }
+        if (!spec.description.empty()) {
+            param["description"] = spec.description;
+        }
+        if (spec.maximum > spec.minimum) {
+            param["range"] = {spec.minimum, spec.maximum};
+        }
+        if (!spec.unit.empty()) {
+            param["unit"] = spec.unit;
+        }
         params.push_back(std::move(param));
     }
     const size_t children = MaximumChildren(&type);

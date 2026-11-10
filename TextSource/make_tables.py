@@ -38,7 +38,8 @@ def main():
         put(entry['name'], node[0:2])
         put(entry['description'], node[2:4])
         for text in [entry['category']] + [p['label'] for p in entry['params']] + \
-                [c for p in entry['params'] for c in p.get('choices', [])]:
+                [c for p in entry['params'] for c in p.get('choices', [])] + \
+                [p[key] for p in entry['params'] for key in ('description', 'unit') if key in p]:
             if any(ch.isalpha() for ch in text) and text not in tables[0]:
                 missing.append(f'{entry["type"]}: {text}')
     if missing:

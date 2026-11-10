@@ -35,6 +35,11 @@ struct ParamSpec {
     bool output = false;
     // Text の参数が取れる値。空なら自由な文字。
     std::vector<std::string> choices{};
+    // 編集器に出す説明、滑条の範囲（maximum > minimum の時）、単位。
+    std::string description{};
+    double minimum = 0.0;
+    double maximum = 0.0;
+    std::string unit{};
 };
 
 struct NodeType {

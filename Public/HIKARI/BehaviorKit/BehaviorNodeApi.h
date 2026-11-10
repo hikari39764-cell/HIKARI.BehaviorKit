@@ -27,7 +27,7 @@ __declspec(dllimport) long long(__stdcall* __stdcall GetProcAddress(HINSTANCE__*
 
 namespace HIKARI::BEHAVIOR {
 
-inline constexpr uint32_t kBehaviorApiVersion = 5u;
+inline constexpr uint32_t kBehaviorApiVersion = 6u;
 inline constexpr wchar_t kBehaviorLibraryName[] = L"HIKARI_BehaviorKit.dll";
 inline constexpr char kBehaviorApiEntryPoint[] = "HIKARI_BehaviorKit_GetApi";
 
@@ -82,6 +82,13 @@ struct ParamDesc {
     // Text の参数が取れる値を "|" で区切って書く（"all|any"）。編集器は選択式で出し、樹の編訳はそれ以外の値を断る。
     // 無ければ自由な文字。既定値（defaultText）も選択肢の一つであること。
     const char* choices = nullptr;
+    // 編集器で参数に鼠標を乗せた時の説明（英文。編集器が界面の言語で引く）。
+    const char* description = nullptr;
+    // Float の参数：maximum が minimum より大きければ編集器は滑条で出す（実行時に値を切り詰めはしない）。
+    double minimum = 0.0;
+    double maximum = 0.0;
+    // 単位（英文の略号 "s"、"m"、"m/s" など）。編集器は名前の後ろに出す。
+    const char* unit = nullptr;
 };
 
 // 編集器に出す、節の進み具合（NodeTypeDesc::progress が書く）。
