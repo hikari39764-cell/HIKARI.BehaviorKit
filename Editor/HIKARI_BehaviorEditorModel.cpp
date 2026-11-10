@@ -265,6 +265,45 @@ bool TreeModel::RemoveKey(std::string_view name) {
     return std::erase_if(document_.blackboard, [&](const DocumentKey& key) { return key.name == name; }) != 0u;
 }
 
+bool TreeModel::RenameKey(std::string_view from, std::string_view to, std::string& message) {
+    if (from == to) {
+        return false;
+    }
+    const auto named = [&](std::string_view name) {
+        return std::find_if(document_.blackboard.begin(), document_.blackboard.end(),
+                            [&](const DocumentKey& key) { return key.name == name; });
+    };
+    const auto key = named(from);
+    if (key == document_.blackboard.end()) {
+        message = "The key does not exist.";
+        return false;
+    }
+    if (to.empty() || named(to) != document_.blackboard.end()) {
+        message = to.empty() ? "A key needs a name." : "A key named \"" + std::string(to) + "\" already exists.";
+        return false;
+    }
+    key->name = std::string(to);
+    for (DocumentNode& node : document_.nodes) {
+        for (DocumentParam& param : node.params) {
+            if (param.isKey && param.key == from) {
+                param.key = std::string(to);
+            }
+        }
+    }
+    return true;
+}
+
+std::vector<uint32_t> TreeModel::KeyUsers(std::string_view name) const {
+    std::vector<uint32_t> users{};
+    for (const DocumentNode& node : document_.nodes) {
+        if (std::any_of(node.params.begin(), node.params.end(),
+                        [&](const DocumentParam& param) { return param.isKey && param.key == name; })) {
+            users.push_back(node.id);
+        }
+    }
+    return users;
+}
+
 std::vector<Problem> TreeModel::Validate(const NodeRegistry& registry, const LoadSubtreeFn& loadSubtree) const {
     std::vector<Problem> problems{};
     CompiledTree compiled{};

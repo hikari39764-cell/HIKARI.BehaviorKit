@@ -131,8 +131,7 @@ uint32_t RunningLeaf(const TreeModel& model, const TreeLayout& layout, const Run
 } // namespace
 
 // 図の上の一行：樹の名前、Play 中なら見ている角色と知らせ、そうでなければ問題の数。
-std::string TreeWorkspace::StatusLine(IEditorWorkspaceUi& ui, const OpenTree& tree, size_t problemCount,
-                                      const RunView& run) const {
+std::string TreeWorkspace::StatusLine(IEditorWorkspaceUi& ui, const OpenTree& tree, const RunView& run) const {
     std::string line =
         tree.IsDirty() || tree.pendingCommit ? FormatText(ui, "{0} (unsaved)", {tree.name}) : Verbatim(tree.name);
     const auto append = [&](const std::string& part) { line += "  |  " + part.substr(1u); };
@@ -151,11 +150,72 @@ std::string TreeWorkspace::StatusLine(IEditorWorkspaceUi& ui, const OpenTree& tr
         }
         return line;
     }
-    if (problemCount != 0u) {
-        append(problemCount == 1u ? FormatText(ui, "1 problem", {})
-                                  : FormatText(ui, "{0} problems", {std::to_string(problemCount)}));
-    }
     return line;
+}
+
+void TreeWorkspace::DrawProblemBadge(IEditorWorkspaceUi& ui, OpenTree& tree) {
+    const std::vector<Problem>& problems = editor_->Problems(tree);
+    // 字体に無い記号は使わず、字だけ（FormatText が今の言語で組む）。
+    const std::string label = problems.empty() ? FormatText(ui, "OK: can run", {})
+                              : problems.size() == 1u
+                                  ? FormatText(ui, "1 problem", {})
+                                  : FormatText(ui, "{0} problems", {std::to_string(problems.size())});
+    if (ui.Button("problems", label) && !problems.empty()) {
+        ui.OpenPopup("problemList");
+    }
+    ui.Tooltip(problems.empty() ? "No problems: this tree can run." : "Click to see the problems.");
+    if (ui.BeginPopup("problemList", {}, false)) {
+        for (size_t index = 0u; index < problems.size(); ++index) {
+            const Problem& problem = problems[index];
+            // 押すと、問題のある節を選んで見せる。
+            if (ui.Selectable(
+                    "problem." + std::to_string(index),
+                    FormatText(ui, problem.warning ? "Warning: {0}" : "Error: {0}", {Show(ui, problem.message)})) &&
+                problem.nodeId != 0u) {
+                tree.Select({problem.nodeId});
+                findFocus_ = problem.nodeId;
+                ui.CloseCurrentPopup();
+            }
+        }
+        ui.EndPopup();
+    }
+}
+
+void TreeWorkspace::DrawShortcuts(IEditorWorkspaceUi& ui) {
+    if (ui.Button("shortcuts", Verbatim("?"))) {
+        ui.OpenPopup("shortcutList");
+    }
+    ui.Tooltip("Keys and mouse actions of this workspace.");
+    if (!ui.BeginPopup("shortcutList", {}, false)) {
+        return;
+    }
+    // 図と面板の操作の一覧（控件が受け持つ物も含む）。
+    constexpr std::pair<std::string_view, std::string_view> kShortcuts[] = {
+        {"Tab", "Add a child to the selected node"},
+        {"Shift+Tab", "Wrap the selected node with a decorator or composite"},
+        {"F2 / double-click title", "Rename the node"},
+        {"Delete", "Delete the node with its branch"},
+        {"Ctrl+C / Ctrl+X / Ctrl+V / Ctrl+D", "Copy, cut, paste under the selected node, duplicate"},
+        {"Ctrl+Z / Ctrl+Y", "Undo, redo"},
+        {"A / F", "Show the whole tree / the selected nodes"},
+        {"Drag a node", "Move it with its branch: onto a node, between siblings or to empty space"},
+        {"Esc", "Cancel the drag"},
+        {"Drag from the node list", "Drop on a node, on a link or on empty space"},
+        {"Right drag / middle drag", "Pan; wheel zooms"},
+        {"Alt + click in the game view", "Watch another character during Play"},
+    };
+    constexpr std::string_view kHeaders[] = {"Shortcut", "Action"};
+    if (ui.BeginTableHeaders("shortcutTable", kHeaders)) {
+        for (const auto& [key, action] : kShortcuts) {
+            ui.TableNextRow();
+            ui.TableNextColumn();
+            ui.Text(key);
+            ui.TableNextColumn();
+            ui.Text(action);
+        }
+        ui.EndTable();
+    }
+    ui.EndPopup();
 }
 
 void TreeWorkspace::DrawGraph(IEditorWorkspaceUi& ui, OpenTree& tree, const RunView& run) {
@@ -173,9 +233,13 @@ void TreeWorkspace::DrawGraph(IEditorWorkspaceUi& ui, OpenTree& tree, const RunV
     ui.Checkbox("followRunning", "Follow Running Node", &followRunning_);
     ui.Tooltip("During Play, keep the node that is running now in view.");
     ui.SameLine();
+    DrawProblemBadge(ui, tree);
+    ui.SameLine();
+    DrawShortcuts(ui);
+    ui.SameLine();
     DrawFind(ui, tree);
     ui.SameLine();
-    ui.Text(StatusLine(ui, tree, problems.size(), run));
+    ui.Text(StatusLine(ui, tree, run));
 
     const TreeDocument& document = model.Document();
     const TreeLayout layout = LayoutTree(document, tree.sizes);

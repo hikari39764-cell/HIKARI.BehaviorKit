@@ -51,8 +51,9 @@ private:
     // 節の種類を、Composite、Decorator、他の分類の順に並べる（図の献立と左の一覧が同じ並び）。
     void RefreshTypes();
 
-    void DrawTrees(EDITOR_PROJECT::IEditorWorkspaceUi& ui);
-    void DrawTreeButtons(EDITOR_PROJECT::IEditorWorkspaceUi& ui, OpenTree& tree);
+    // 図の上の札：開いている樹ごとに一枚（未保存の印、閉じる）、「+」で開く・新しく作る。
+    void DrawTabs(EDITOR_PROJECT::IEditorWorkspaceUi& ui);
+    void DrawNewTreeDialog(EDITOR_PROJECT::IEditorWorkspaceUi& ui);
     void DrawLibrary(EDITOR_PROJECT::IEditorWorkspaceUi& ui);
     void AddFromLibrary(OpenTree& tree, const std::string& typeName);
     // 最近使った種類の一覧の頭に入れる（一覧は次の RefreshTypes で作り直す）。
@@ -60,7 +61,9 @@ private:
     void DrawDetails(EDITOR_PROJECT::IEditorWorkspaceUi& ui, OpenTree* tree, const RunView& run);
     void DrawLabelFields(EDITOR_PROJECT::IEditorWorkspaceUi& ui, OpenTree& tree, const DocumentNode& node);
     void DrawBlackboard(EDITOR_PROJECT::IEditorWorkspaceUi& ui, OpenTree& tree, const RunView& run);
-    void DrawProblems(EDITOR_PROJECT::IEditorWorkspaceUi& ui, OpenTree* tree);
+    // 図の上の行の状態札（問題の数、押すと一覧）と、快捷键の一覧。
+    void DrawProblemBadge(EDITOR_PROJECT::IEditorWorkspaceUi& ui, OpenTree& tree);
+    void DrawShortcuts(EDITOR_PROJECT::IEditorWorkspaceUi& ui);
 
     // ---- Play を見る（HIKARI_BehaviorEditorWorkspacePlay.cpp）----
     // 工具栏：Play の開始・停止・一時停止・一コマ送り、見る角色、游戏画面の表示。
@@ -77,8 +80,7 @@ private:
     void DrawRunValues(EDITOR_PROJECT::IEditorWorkspaceUi& ui, const OpenTree& tree, const RunView& run);
 
     // ---- 樹の図（HIKARI_BehaviorEditorWorkspaceGraph.cpp）----
-    std::string StatusLine(EDITOR_PROJECT::IEditorWorkspaceUi& ui, const OpenTree& tree, size_t problemCount,
-                           const RunView& run) const;
+    std::string StatusLine(EDITOR_PROJECT::IEditorWorkspaceUi& ui, const OpenTree& tree, const RunView& run) const;
     void DrawGraph(EDITOR_PROJECT::IEditorWorkspaceUi& ui, OpenTree& tree, const RunView& run);
     void ApplyGraphResult(EDITOR_PROJECT::IEditorWorkspaceUi& ui, OpenTree& tree, const TreeLayout& layout,
                           const EDITOR_PROJECT::EditorNodeGraphResult& result);
@@ -99,10 +101,16 @@ private:
     std::shared_ptr<TreeEditor> editor_;
     Message status_{};
     std::string closeAsked_{};
-    char newName_[128] = "Behavior/NewTree";
-    char keyName_[64]{};
-    int32_t keyType_ = 2;
-    int32_t removeKey_ = 0;
+    char newName_[128] = "NewTree";
+    char newFolder_[128] = "Behavior";
+    bool openNewTree_ = false;
+    // 札に出している樹と、樹が札の外で替わった時に札を合わせ直す残りのフレーム。
+    std::string shownTab_{};
+    uint32_t forceTabFrames_ = 0u;
+    // 消そうとしている、まだ使われているキー。
+    std::string removeKeyName_{};
+    // 最後に状態欄へ出した知らせ。
+    std::string publishedStatus_{};
     // 節の種類の並び（図の献立の番号と同じ）と、それを作った時の種類の表の版。
     std::vector<std::string> typeNames_{};
     // 絞り込みの手がかり（型名、表示名、分類、説明）。createItems_ が指す。

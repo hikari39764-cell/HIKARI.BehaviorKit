@@ -70,6 +70,10 @@ public:
     // 黒板のキーを足すか、同じ名前の物を置き換える。
     bool SetKey(DocumentKey key, std::string& message);
     bool RemoveKey(std::string_view name);
+    // キーの名前を変え、そのキーを指している参数も一緒に書き換える。新しい名前が空か既にあれば断る。
+    bool RenameKey(std::string_view from, std::string_view to, std::string& message);
+    // name のキーを指している参数を持つ節（樹の並び順）。
+    std::vector<uint32_t> KeyUsers(std::string_view name) const;
 
     // ---- 形を変える（HIKARI_BehaviorEditorRestructure.cpp）----
     // 消す。既定は一支ごと（子孫も）。keepChildren なら消す節の子を、消した節が居た所へ順に繋ぎ直す（親に入り切らない子は

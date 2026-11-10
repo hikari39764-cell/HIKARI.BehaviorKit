@@ -891,6 +891,12 @@ void CheckRestructure(const NodeRegistry& registry) {
     const std::vector<uint32_t> loose =
         model.PasteNodes(model.CopyNodes(std::vector<uint32_t>{4u}), registry, inverter, added);
     CHECK(loose.size() == 1u && model.ParentOf(loose[0]) == 0u);
+    // キーの名前を変えると、指している参数も変わる。重なる名前と空の名前は断る。
+    CHECK(model.KeyUsers("delay").size() == 1u && model.RenameKey("delay", "pause", message) &&
+          model.KeyUsers("pause").size() == 1u && model.KeyUsers("delay").empty());
+    message.clear();
+    CHECK(!model.RenameKey("pause", "", message) && !message.empty());
+    CHECK(model.RenameKey("pause", "delay", message));
     // 検索：名前、種類、黒板のキー。
     CHECK(FindNodes(model, registry, "chase").size() == 1u && FindNodes(model, registry, "DELAY").size() == 1u &&
           FindNodes(model, registry, "").empty());

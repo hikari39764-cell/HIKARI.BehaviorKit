@@ -33,7 +33,7 @@ NodeSummary SummarizeParams(EDITOR_PROJECT::IEditorWorkspaceUi& ui, const Docume
 // 選んだ節の参数を、種類の宣言どおりの控件で出す。変えた値はその場で tree.model に書き、変えたら true を返す
 // （文書へ積むのは呼び手：拖動や入力が終わった時に一手にまとめる）。
 bool DrawNodeParams(EDITOR_PROJECT::IEditorWorkspaceUi& ui, OpenTree& tree, uint32_t nodeId);
-// 黒板のキーの初期値。物体のキーは樹が走っている間に節が入れるので、初期値は無い。
-bool DrawBlackboardValues(EDITOR_PROJECT::IEditorWorkspaceUi& ui, OpenTree& tree);
+// 黒板の index 番目のキーの初期値の控件（名前は出さない）。物体のキーは樹が走っている間に節が入れるので、初期値は無い。
+bool DrawKeyValue(EDITOR_PROJECT::IEditorWorkspaceUi& ui, OpenTree& tree, size_t index);
 
 } // namespace HIKARI::BEHAVIOR::EDITING

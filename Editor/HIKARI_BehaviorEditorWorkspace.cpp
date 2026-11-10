@@ -89,24 +89,38 @@ void TreeWorkspace::Draw(EditorWorkspaceHostContext& context) {
 
     frameSeconds_ = context.unscaledDeltaSeconds;
     FollowSelectionToTree();
-    DrawTrees(ui);
-    OpenTree* tree = editor.Current();
-    const RunView run = tree != nullptr ? InspectRun(*tree, editor) : RunView{};
-    UpdateLiveNotice(tree);
-    if (run.watchReplaced) {
-        status_ = {"The watched character is gone. Now watching {0}.", {std::string(run.user->OwnerName())}};
+    // 左は節点库だけ。開いている樹は図の上の札で切り替える。
+    if (ui.BeginPanel("library", "Nodes", nullptr, EditorWorkspaceDockRegion::Left)) {
+        DrawLibrary(ui);
     }
-    DrawPlayToolbar(ui, context.commands, run);
+    ui.EndPanel();
+    OpenTree* tree = nullptr;
+    RunView run{};
     if (ui.BeginPanel("graph", "Tree", nullptr, EditorWorkspaceDockRegion::Center)) {
+        DrawTabs(ui);
+        tree = editor.Current();
+        run = tree != nullptr ? InspectRun(*tree, editor) : RunView{};
+        UpdateLiveNotice(tree);
+        if (run.watchReplaced) {
+            status_ = {"The watched character is gone. Now watching {0}.", {std::string(run.user->OwnerName())}};
+        }
         if (tree != nullptr) {
             DrawGraph(ui, *tree, run);
         } else {
-            ui.Text("Pick a behavior tree asset on the left, or create a new tree.");
+            ui.Text("Open a behavior tree with + above, or create a new one.");
         }
     }
     ui.EndPanel();
+    DrawPlayToolbar(ui, context.commands, run);
     DrawDetails(ui, tree, run);
-    DrawProblems(ui, tree);
+    // 保存や撤销などの知らせは工作区の状態欄へ（変わった時だけ）。
+    if (const std::string shown = status_.empty() ? std::string{} : Show(ui, status_).substr(1u);
+        shown != publishedStatus_ && context.commands != nullptr) {
+        publishedStatus_ = shown;
+        if (!shown.empty()) {
+            context.commands->PublishStatus(EditorWorkspaceStatusSeverity::Info, shown);
+        }
+    }
 }
 
 void TreeWorkspace::Open(std::string_view guid) {
@@ -163,80 +177,8 @@ void TreeWorkspace::RefreshTypes() {
     }
 }
 
-void TreeWorkspace::DrawTrees(IEditorWorkspaceUi& ui) {
-    TreeEditor& editor = *editor_;
-    if (ui.BeginPanel("trees", "Trees", nullptr, EditorWorkspaceDockRegion::Left)) {
-        OpenTree* current = editor.Current();
-        char guid[64]{};
-        if (current != nullptr) {
-            std::snprintf(guid, sizeof(guid), "%s", current->guid.c_str());
-        }
-        if (ui.ModuleAssetField("open", "Tree", kTreeAssetType, guid, sizeof(guid)) && guid[0] != '\0') {
-            Open(guid);
-        }
-        ui.Tooltip("Pick a behavior tree asset to open it.");
-        ui.InputText("newName", "New Tree", newName_, sizeof(newName_));
-        ui.Tooltip("Where to create a tree, under Assets. For example: Behavior/Guard");
-        if (ui.Button("create", "Create Tree")) {
-            std::string message{};
-            status_ = editor.Create(newName_, TreeModel::MakeNew(), message) != nullptr
-                          ? Message{"Created the tree."}
-                          : Message{"Could not create the tree: {0}", {message}};
-        }
-        ui.Separator();
-        for (const auto& tree : editor.Trees()) {
-            const std::string label = Verbatim(tree->name + (tree->IsDirty() || tree->pendingCommit ? " *" : ""));
-            if (ui.Selectable("tree." + tree->guid, label, tree.get() == editor.Current())) {
-                editor.SetCurrent(*tree);
-            }
-        }
-        current = editor.Current();
-        if (current != nullptr) {
-            DrawTreeButtons(ui, *current);
-        }
-        ui.Separator();
-        DrawLibrary(ui);
-    }
-    ui.EndPanel();
-}
-
-void TreeWorkspace::DrawTreeButtons(IEditorWorkspaceUi& ui, OpenTree& tree) {
-    TreeEditor& editor = *editor_;
-    std::string message{};
-    if (ui.Button("save", "Save")) {
-        status_ =
-            editor.Save(tree, message) ? Message{"Saved {0}.", {tree.name}} : Message{"Could not save: {0}", {message}};
-    }
-    ui.SameLine();
-    if (ui.Button("saveAll", "Save All")) {
-        status_ = editor.SaveAll(message) ? Message{"Saved."} : Message{"Could not save: {0}", {message}};
-    }
-    ui.SameLine();
-    if (ui.Button("close", "Close")) {
-        if (editor.Close(tree, false)) {
-            return;
-        }
-        closeAsked_ = tree.guid;
-    }
-    // 保存していない変更がある樹は、捨てると言われてから閉じる。
-    if (closeAsked_ == tree.guid) {
-        ui.Text("This tree has unsaved changes.");
-        if (ui.Button("discard", "Discard Changes")) {
-            closeAsked_.clear();
-            editor.Close(tree, true);
-            return;
-        }
-        ui.SameLine();
-        if (ui.Button("keep", "Keep Open")) {
-            closeAsked_.clear();
-        }
-    }
-}
-
 void TreeWorkspace::DrawLibrary(IEditorWorkspaceUi& ui) {
     RefreshTypes();
-    ui.Text("Nodes");
-    ui.Tooltip("Click a node to add it under the selected node. Tab on the graph does the same next to the node.");
     ui.InputText("library.search", "Search", librarySearch_, sizeof(librarySearch_));
     ui.Tooltip("Matches the name in the current language, the type name and words of the description.");
     const std::string_view query = librarySearch_;
@@ -245,6 +187,7 @@ void TreeWorkspace::DrawLibrary(IEditorWorkspaceUi& ui) {
         if (type == nullptr) {
             return;
         }
+        // 押すと選んでいる節の下に足す（図で Tab を押しても同じ）。
         if (ui.Selectable(std::string(idPrefix) + type->typeName, type->displayName)) {
             if (OpenTree* tree = editor_->Current()) {
                 AddFromLibrary(*tree, type->typeName);
@@ -312,9 +255,13 @@ void TreeWorkspace::RememberType(std::string_view typeName) {
 void TreeWorkspace::AddFromLibrary(OpenTree& tree, const std::string& typeName) {
     const NodeRegistry& registry = Registry();
     TreeModel& model = tree.model;
+    // 選んでいる節（葉ならその親）の下に。何も選んでいなければ根の下に。
     uint32_t parent = 0u;
-    if (tree.selected.size() == 1u) {
-        for (uint32_t candidate : {tree.selected.front(), model.ParentOf(tree.selected.front())}) {
+    const uint32_t anchor = tree.selected.size() == 1u ? tree.selected.front()
+                            : tree.selected.empty()    ? model.Document().root
+                                                       : 0u;
+    if (anchor != 0u) {
+        for (uint32_t candidate : {anchor, model.ParentOf(anchor)}) {
             const DocumentNode* node = model.Find(candidate);
             if (node != nullptr && node->children.size() < MaximumChildren(registry.Find(node->type))) {
                 parent = candidate;
@@ -381,73 +328,208 @@ void TreeWorkspace::DrawDetails(IEditorWorkspaceUi& ui, OpenTree* tree, const Ru
     ui.EndPanel();
 }
 
+void TreeWorkspace::DrawTabs(IEditorWorkspaceUi& ui) {
+    TreeEditor& editor = *editor_;
+    OpenTree* current = editor.Current();
+    // 樹が札の外で替わった（場景の選択、操作、資産浏览器）：札をそちらに合わせる。札の選択は次のフレームに効くので二回。
+    if (current != nullptr && current->guid != shownTab_ && forceTabFrames_ == 0u) {
+        forceTabFrames_ = 2u;
+    }
+    const bool force = forceTabFrames_ != 0u;
+    OpenTree* closing = nullptr;
+    if (ui.BeginTabBar("trees")) {
+        for (const auto& tree : editor.Trees()) {
+            bool close = false;
+            const bool shown =
+                ui.TabItem("tree." + tree->guid, Verbatim(tree->name), tree->IsDirty() || tree->pendingCommit,
+                           force && tree.get() == current, &close);
+            if (shown && !force && tree.get() != current) {
+                editor.SetCurrent(*tree);
+            }
+            if (shown && !force) {
+                shownTab_ = tree->guid;
+            }
+            if (close) {
+                closing = tree.get();
+            }
+        }
+        const bool add = ui.TabButton("add", "+");
+        ui.Tooltip("Open a tree or create a new one.");
+        ui.EndTabBar();
+        // 札の列の中は識別の範囲が違うので、献立は札の列を閉じてから開く。
+        if (add) {
+            ui.OpenPopup("treeMenu");
+        }
+    }
+    if (force) {
+        --forceTabFrames_;
+        shownTab_ = current != nullptr ? current->guid : std::string{};
+    }
+    if (closing != nullptr && !editor.Close(*closing, false)) {
+        // 保存していない変更がある樹は、どうするか聞いてから閉じる。
+        closeAsked_ = closing->guid;
+        ui.OpenPopup("closeTree");
+    }
+    if (ui.BeginPopup("treeMenu", {}, false)) {
+        if (ui.Selectable("newTree", "New Tree...")) {
+            openNewTree_ = true;
+            ui.CloseCurrentPopup();
+        }
+        char guid[64]{};
+        if (ui.ModuleAssetField("open", "Open", kTreeAssetType, guid, sizeof(guid)) && guid[0] != '\0') {
+            Open(guid);
+            ui.CloseCurrentPopup();
+        }
+        ui.Tooltip("Pick a behavior tree asset to open it.");
+        ui.EndPopup();
+    }
+    if (openNewTree_) {
+        openNewTree_ = false;
+        ui.OpenPopup("newTree");
+    }
+    DrawNewTreeDialog(ui);
+    if (ui.BeginPopup("closeTree", "Unsaved Changes", true)) {
+        OpenTree* tree = editor.Find(closeAsked_);
+        std::string message{};
+        if (tree == nullptr) {
+            ui.CloseCurrentPopup();
+        } else {
+            ui.Text(FormatText(ui, "{0} has unsaved changes.", {tree->name}));
+            if (ui.Button("saveClose", "Save and Close")) {
+                status_ = editor.Save(*tree, message) && editor.Close(*tree, false)
+                              ? Message{"Saved and closed the tree."}
+                              : Message{"Could not save: {0}", {message}};
+                ui.CloseCurrentPopup();
+            }
+            ui.SameLine();
+            if (ui.Button("discard", "Discard Changes")) {
+                editor.Close(*tree, true);
+                ui.CloseCurrentPopup();
+            }
+            ui.SameLine();
+            if (ui.Button("keep", "Keep Open")) {
+                ui.CloseCurrentPopup();
+            }
+        }
+        ui.EndPopup();
+    }
+}
+
+void TreeWorkspace::DrawNewTreeDialog(IEditorWorkspaceUi& ui) {
+    if (!ui.BeginPopup("newTree", "New Behavior Tree", true)) {
+        return;
+    }
+    ui.InputText("newName", "Name", newName_, sizeof(newName_));
+    ui.InputText("newFolder", "Folder", newFolder_, sizeof(newFolder_));
+    ui.Tooltip("Folder under Assets. The last one you used is kept.");
+    const std::string folder = std::string(newFolder_);
+    const std::string path = (folder.empty() ? std::string{} : folder + "/") + newName_;
+    ui.Text(FormatText(ui, "Saved as Assets/{0}.hbtree", {path}));
+    if (ui.Button("createTree", "Create") && newName_[0] != '\0') {
+        std::string message{};
+        status_ = editor_->Create(path, TreeModel::MakeNew(), message) != nullptr
+                      ? Message{"Created the tree."}
+                      : Message{"Could not create the tree: {0}", {message}};
+        ui.CloseCurrentPopup();
+    }
+    ui.SameLine();
+    if (ui.Button("cancelTree", "Cancel")) {
+        ui.CloseCurrentPopup();
+    }
+    ui.EndPopup();
+}
+
 void TreeWorkspace::DrawBlackboard(IEditorWorkspaceUi& ui, OpenTree& tree, const RunView& run) {
     TreeModel& model = tree.model;
-    tree.pendingCommit = DrawBlackboardValues(ui, tree) || tree.pendingCommit;
-
     std::string message{};
     std::string_view typeNames[kBlackboardTypeCount]{};
     for (int32_t index = 0; index < kBlackboardTypeCount; ++index) {
         typeNames[index] = BlackboardTypeName(static_cast<ValueType>(index));
     }
-    ui.InputText("keyName", "Name", keyName_, sizeof(keyName_));
-    ui.Combo("keyType", "Type", typeNames, &keyType_);
-    if (ui.Button("addKey", "Add Key")) {
-        DocumentKey key{};
-        key.name = keyName_;
-        key.value.type = static_cast<ValueType>(std::clamp(keyType_, 0, kBlackboardTypeCount - 1));
-        if (model.SetKey(std::move(key), message)) {
-            keyName_[0] = '\0';
-            Commit(tree);
-        } else {
-            status_ = Plain(message);
-        }
-    }
-    ui.Tooltip("Adds a key, or changes the type of the key with this name.");
-    if (!model.Document().blackboard.empty()) {
-        // 変数の名前は訳さない。
-        std::vector<std::string> shown{};
-        for (const DocumentKey& key : model.Document().blackboard) {
-            shown.push_back(Verbatim(key.name));
-        }
-        const std::vector<std::string_view> names(shown.begin(), shown.end());
-        removeKey_ = std::clamp(removeKey_, 0, static_cast<int32_t>(names.size()) - 1);
-        ui.Combo("removeKey", "Key", names, &removeKey_);
-        ui.SameLine();
-        if (ui.Button("removeKeyButton", "Remove Key")) {
-            // 黒板の文字を指しているので、消す前に写す。
-            const std::string name(model.Document().blackboard[static_cast<size_t>(removeKey_)].name);
-            if (model.RemoveKey(name)) {
-                Commit(tree);
+    // 変数の表：名前（そのまま書き換えると参数の指す先も変わる）、型、初期値、使っている節の数、消す。
+    bool askRemoveKey = false;
+    constexpr std::string_view kHeaders[] = {"Name", "Type", "Initial Value", "Used", ""};
+    if (ui.BeginTableHeaders("keys", kHeaders)) {
+        for (size_t index = 0u; index < model.Document().blackboard.size(); ++index) {
+            const DocumentKey key = model.Document().blackboard[index];
+            const std::string id = "key." + std::to_string(index);
+            ui.TableNextRow();
+            ui.TableNextColumn();
+            char name[64]{};
+            std::snprintf(name, sizeof(name), "%s", key.name.c_str());
+            if (ui.InputText(id + ".name", Verbatim("##name"), name, sizeof(name)) &&
+                model.RenameKey(key.name, name, message)) {
+                tree.pendingCommit = true;
             }
-        }
-    }
-    DrawRunValues(ui, tree, run);
-}
-
-void TreeWorkspace::DrawProblems(IEditorWorkspaceUi& ui, OpenTree* tree) {
-    if (ui.BeginPanel("problems", "Problems", nullptr, EditorWorkspaceDockRegion::Bottom)) {
-        if (!status_.empty()) {
-            ui.Text(Show(ui, status_));
-        }
-        if (tree != nullptr) {
-            const std::vector<Problem>& problems = editor_->Problems(*tree);
-            if (problems.empty()) {
-                ui.Text("No problems: this tree can run.");
-            }
-            for (size_t index = 0u; index < problems.size(); ++index) {
-                const Problem& problem = problems[index];
-                // 押すと、問題のある節を選ぶ。
-                if (ui.Selectable(
-                        "problem." + std::to_string(index),
-                        FormatText(ui, problem.warning ? "Warning: {0}" : "Error: {0}", {Show(ui, problem.message)})) &&
-                    problem.nodeId != 0u) {
-                    tree->Select({problem.nodeId});
+            ui.TableNextColumn();
+            int32_t type = static_cast<int32_t>(key.value.type);
+            if (ui.Combo(id + ".type", Verbatim("##type"), typeNames, &type) &&
+                type != static_cast<int32_t>(key.value.type)) {
+                DocumentKey retyped{key.name, {}};
+                retyped.value.type = static_cast<ValueType>(std::clamp(type, 0, kBlackboardTypeCount - 1));
+                if (model.SetKey(std::move(retyped), message)) {
+                    Commit(tree,
+                           {"Changed the type of {0}: nodes that do not fit are listed as problems.", {key.name}});
                 }
             }
+            ui.TableNextColumn();
+            tree.pendingCommit = DrawKeyValue(ui, tree, index) || tree.pendingCommit;
+            ui.TableNextColumn();
+            const std::vector<uint32_t> users = model.KeyUsers(key.name);
+            // 押すと、使っている節を図で選ぶ。
+            if (ui.Button(id + ".used", Verbatim(std::to_string(users.size()))) && !users.empty()) {
+                tree.Select(users);
+                findFocus_ = users.front();
+            }
+            ui.Tooltip("Nodes that use this key. Click to select them on the graph.");
+            ui.TableNextColumn();
+            if (ui.Button(id + ".remove", Verbatim("x"))) {
+                if (users.empty()) {
+                    model.RemoveKey(key.name);
+                    Commit(tree, {"Removed {0}.", {key.name}});
+                } else {
+                    removeKeyName_ = key.name;
+                    askRemoveKey = true;
+                }
+            }
+            ui.Tooltip("Remove this key.");
+        }
+        ui.EndTable();
+    }
+    // 表の中は識別の範囲が違うので、確かめる窓は表を閉じてから開く。
+    if (askRemoveKey) {
+        ui.OpenPopup("removeKey");
+    }
+    if (ui.Button("addKey", "+ Add Key")) {
+        // 重ならない名前の小数のキーを足す。名前と型は表でそのまま変える。
+        std::string name = "value";
+        for (int number = 2; std::any_of(model.Document().blackboard.begin(), model.Document().blackboard.end(),
+                                         [&](const DocumentKey& item) { return item.name == name; });
+             ++number) {
+            name = "value" + std::to_string(number);
+        }
+        DocumentKey key{name, {}};
+        key.value.type = ValueType::Float;
+        if (model.SetKey(std::move(key), message)) {
+            Commit(tree, {"Added {0}.", {name}});
         }
     }
-    ui.EndPanel();
+    if (ui.BeginPopup("removeKey", "Remove Key", true)) {
+        const size_t users = model.KeyUsers(removeKeyName_).size();
+        ui.Text(FormatText(ui, "{0} is used by {1} nodes. They will show a problem until you change them.",
+                           {removeKeyName_, std::to_string(users)}));
+        if (ui.Button("removeAnyway", "Remove")) {
+            model.RemoveKey(removeKeyName_);
+            Commit(tree, {"Removed {0}.", {removeKeyName_}});
+            ui.CloseCurrentPopup();
+        }
+        ui.SameLine();
+        if (ui.Button("keepKey", "Cancel")) {
+            ui.CloseCurrentPopup();
+        }
+        ui.EndPopup();
+    }
+    DrawRunValues(ui, tree, run);
 }
 
 std::unique_ptr<IEditorWorkspace> CreateTreeWorkspace(std::shared_ptr<TreeEditor> editor) {

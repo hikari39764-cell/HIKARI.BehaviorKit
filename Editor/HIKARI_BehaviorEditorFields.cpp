@@ -209,44 +209,6 @@ private:
 };
 
 // 黒板のキーの初期値。物体のキーは樹が走っている間に節が入れるので、初期値は無い。
-class BlackboardFields final : public IPropertyFieldDeclaration {
-public:
-    BlackboardFields(IEditorWorkspaceUi& ui, OpenTree& tree) : ui_(ui), tree_(tree) {}
-
-    void Describe(PropertyFields& fields) override {
-        // SetKey は同じ名前の項目をその場で置き換えるので、番号で回る間に並びは変わらない。
-        for (size_t index = 0u; index < tree_.model.Document().blackboard.size(); ++index) {
-            DocumentKey key = tree_.model.Document().blackboard[index];
-            // 変数の名前と型の名前は訳さない。
-            const std::string label = Verbatim(key.name + " (" + std::string(BlackboardTypeName(key.value.type)) + ")");
-            const std::string id = "key." + key.name;
-            bool edited = false;
-            switch (key.value.type) {
-            case ValueType::Bool: edited = fields.Bool(id, label, key.value.boolean); break;
-            case ValueType::Int: {
-                int number = static_cast<int>(key.value.integer);
-                edited = fields.Int(id, label, number);
-                key.value.integer = number;
-                break;
-            }
-            case ValueType::Float: edited = fields.Float(id, label, key.value.number); break;
-            case ValueType::Vec3: edited = fields.Float3(id, label, key.value.vector); break;
-            default: fields.Note(FormatText(ui_, "{0}: filled in by nodes while the tree runs", {label})); break;
-            }
-            std::string message{};
-            if (edited && tree_.model.SetKey(std::move(key), message)) {
-                changed = true;
-            }
-        }
-    }
-
-    bool changed = false;
-
-private:
-    IEditorWorkspaceUi& ui_;
-    OpenTree& tree_;
-};
-
 } // namespace
 
 std::string FormatValue(const Value& value) {
@@ -329,10 +291,38 @@ bool DrawNodeParams(IEditorWorkspaceUi& ui, OpenTree& tree, uint32_t nodeId) {
     return fields.changed;
 }
 
-bool DrawBlackboardValues(IEditorWorkspaceUi& ui, OpenTree& tree) {
-    BlackboardFields fields(ui, tree);
-    ui.Fields("blackboard", fields);
-    return fields.changed;
+bool DrawKeyValue(IEditorWorkspaceUi& ui, OpenTree& tree, size_t index) {
+    DocumentKey key = tree.model.Document().blackboard[index];
+    const std::string id = "key." + std::to_string(index) + ".value";
+    const std::string label = Verbatim("##value");
+    bool edited = false;
+    switch (key.value.type) {
+    case ValueType::Bool: edited = ui.Checkbox(id, label, &key.value.boolean); break;
+    case ValueType::Int: {
+        int32_t number = static_cast<int32_t>(key.value.integer);
+        edited = ui.InputInt(id, label, &number);
+        key.value.integer = number;
+        break;
+    }
+    case ValueType::Float: edited = ui.InputFloat(id, label, &key.value.number); break;
+    case ValueType::Vec3: {
+        // 一つの欄に「x, y, z」。三つの数に読めた時だけ書く。
+        char text[96]{};
+        std::snprintf(text, sizeof(text), "%s", FormatValue(key.value).c_str());
+        GameProjectFloat3 vector{};
+        edited = ui.InputText(id, label, text, sizeof(text)) &&
+                 std::sscanf(text, "%f , %f , %f", &vector.x, &vector.y, &vector.z) == 3;
+        key.value.vector = vector;
+        break;
+    }
+    default:
+        // 物体のキーは樹が走っている間に節が入れる。
+        ui.Text(Verbatim("-"));
+        ui.Tooltip("Filled in by nodes while the tree runs.");
+        return false;
+    }
+    std::string message{};
+    return edited && tree.model.SetKey(std::move(key), message);
 }
 
 } // namespace HIKARI::BEHAVIOR::EDITING
