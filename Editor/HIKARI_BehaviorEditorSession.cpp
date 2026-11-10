@@ -341,7 +341,13 @@ bool TreeEditor::SetBreakpoint(std::string_view guid, uint32_t node, bool enable
 }
 
 void TreeEditor::Observe(ITreeUser& user) {
-    user.SetObserver(breakpoints_.empty() ? nullptr : &TreeEditor::OnNodeState, this);
+    // 角色がいなくなったら、「次に考えたら止める」は取り消す。
+    if (nextThink_ != nullptr && std::find(BehaviorLibrary::Get().Users().begin(), BehaviorLibrary::Get().Users().end(),
+                                           nextThink_) == BehaviorLibrary::Get().Users().end()) {
+        nextThink_ = nullptr;
+    }
+    const bool watching = !breakpoints_.empty() || nextThink_ == &user;
+    user.SetObserver(watching ? &TreeEditor::OnNodeState : nullptr, this);
 }
 
 bool TreeEditor::TakeHit(Breakpoint& out) {
@@ -358,9 +364,13 @@ void TreeEditor::OnNodeState(void* user, const TreeInstance& instance, uint32_t 
     // 走り始めた時（前が走っている・子を待っている以外）だけ。毎回確かめる条件の節は、確かめる度に当たる。
     // 止めるまでの間に当たった最初の一つを覚える。
     const CompiledTree* compiled = instance.Tree();
+    if (editor.hasHit_ || compiled == nullptr || node >= compiled->nodes.size()) {
+        return;
+    }
+    // 「次に考えたら止める」：その角色の樹で最初に進められた節（一番深い節から報告が来る）。
+    const bool nextThink = editor.nextThink_ != nullptr && &editor.nextThink_->Instance() == &instance;
     const bool continuing = from == NodeState::Running || from == NodeState::Waiting;
-    if (editor.hasHit_ || continuing || to == NodeState::Idle || compiled == nullptr ||
-        node >= compiled->nodes.size()) {
+    if (!nextThink && (continuing || to == NodeState::Idle)) {
         return;
     }
     const CompiledNode& compiledNode = compiled->nodes[node];
@@ -375,9 +385,12 @@ void TreeEditor::OnNodeState(void* user, const TreeInstance& instance, uint32_t 
             }
         }
     }
-    if (editor.HasBreakpoint(guid, compiledNode.sourceId)) {
+    if (nextThink || editor.HasBreakpoint(guid, compiledNode.sourceId)) {
         editor.hit_ = {std::move(guid), compiledNode.sourceId};
         editor.hasHit_ = true;
+        if (nextThink) {
+            editor.nextThink_ = nullptr;
+        }
     }
 }
 

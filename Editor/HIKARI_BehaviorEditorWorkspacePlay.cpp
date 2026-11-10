@@ -108,6 +108,15 @@ void TreeWorkspace::DrawPlayToolbar(IEditorWorkspaceUi& ui, IEditorWorkspaceComm
                 editor_->RunOperation("play.step", Json{{"ticks", 1}}.dump(), data, message);
             }
             ui.Tooltip("Pause, then advance the game by one fixed tick.");
+            ui.SameLine();
+            // 見ている角色の樹が次に進められるまで走らせて止める（何フレームかに一度考える樹、ゲームのコードが進める樹）。
+            if (ui.Button("thinkNext", "Think Next") && run.user != nullptr) {
+                editor_->RequestNextThink(*run.user);
+                if (paused) {
+                    editor_->RunOperation("play.pause", Json{{"paused", false}}.dump(), data, message);
+                }
+            }
+            ui.Tooltip("Run until the watched character's tree is ticked once more, then pause.");
         }
 
         if (playing) {

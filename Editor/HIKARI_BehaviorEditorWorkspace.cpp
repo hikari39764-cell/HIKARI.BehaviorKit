@@ -115,7 +115,7 @@ void TreeWorkspace::Draw(EditorWorkspaceHostContext& context) {
                 findFocus_ = hit.node;
                 run = InspectRun(*tree, editor);
             }
-            status_ = {"Paused at a breakpoint."};
+            status_ = {"Paused: the tree just ran this node."};
         }
         UpdateLiveNotice(tree);
         if (run.watchReplaced) {

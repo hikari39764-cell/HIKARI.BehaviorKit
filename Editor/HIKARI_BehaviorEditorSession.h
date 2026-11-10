@@ -139,6 +139,8 @@ public:
     size_t BreakpointCount() const noexcept { return breakpoints_.size(); }
     // 角色の樹の状態の変化を受け取る（断点がある間だけ。無ければ外す）。InspectRun が Play 中の角色ごとに呼ぶ。
     void Observe(ITreeUser& user);
+    // user の樹が次に進められた時に止める（断点と同じく TakeHit で受け取る）。
+    void RequestNextThink(const ITreeUser& user) noexcept { nextThink_ = &user; }
     // 当たった断点（一度読むと消える）。止めるのは呼び手（Play の一時停止は推進の外で）。
     bool TakeHit(Breakpoint& out);
     // 引擎の編集器の操作（play.start、asset.query など）をその場で呼ぶ。断られたら false と理由。
@@ -164,6 +166,8 @@ private:
     std::vector<Breakpoint> breakpoints_{};
     Breakpoint hit_{};
     bool hasHit_ = false;
+    // 「次に考えたら止める」の相手（無ければ nullptr）。
+    const ITreeUser* nextThink_ = nullptr;
 };
 
 } // namespace HIKARI::BEHAVIOR::EDITING

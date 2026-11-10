@@ -159,7 +159,10 @@ UI = {
     'Play pauses when this node starts.': ('这个节点开始执行时 Play 会暂停。', 'このノードが始まると Play が一時停止します。'),
     'Removed the breakpoint.': ('已去掉断点。', 'ブレークポイントを外しました。'),
     'Break': ('断点', '停止点'),
-    'Paused at a breakpoint.': ('在断点处暂停了。', 'ブレークポイントで一時停止しました。'),
+    'Paused: the tree just ran this node.': ('已暂停：树刚执行了这个节点。', '一時停止：ツリーがこのノードを実行したところです。'),
+    'Think Next': ('想下一次', '次の思考まで'),
+    "Run until the watched character's tree is ticked once more, then pause.": (
+        '运行到观察的角色的树下一次被推进，然后暂停。', '見ているキャラクターのツリーが次に進むまで実行して一時停止します。'),
     'Now': ('现在', '現在'), 'Now: the values of {0}.': ('“现在”列是 {0} 的当前值。', '「現在」の列は {0} の今の値です。'),
     'Set by hand: only this character, only until Play stops.': ('手动改过：只影响这个角色，Play 结束就恢复。',
                                                                  '手で変更：このキャラクターだけ、Play を止めるまで。'),
