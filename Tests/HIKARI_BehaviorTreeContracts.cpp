@@ -797,23 +797,103 @@ void CheckEditorModel(const NodeRegistry& registry) {
           model.SetKey(key, message) && model.Validate(registry, {}).size() == 1u);
     CHECK(model.ClearParam(left, "seconds") && model.Find(left)->params.empty() && model.RemoveKey("delay"));
 
-    // 複写は互いの親子関係ごと（樹のファイルに並ぶ順：sequence、left、inverter）。貼った節は新しい id で、元の樹には繋がらない。
-    const std::vector<uint32_t> copied{sequence, inverter, left};
-    const std::vector<uint32_t> pasted = model.PasteNodes(model.CopyNodes(copied));
+    // 複写は子孫ごと（sequence を選べば inverter と left も）。貼った節は新しい id で、親を渡さなければどこにも繋がらない。
+    std::vector<std::string> added{};
+    const std::vector<uint32_t> copied{sequence};
+    const std::vector<uint32_t> pasted = model.PasteNodes(model.CopyNodes(copied), registry, 0u, added);
     CHECK(pasted.size() == 3u && model.Document().nodes.size() == 8u && model.ParentOf(pasted[0]) == 0u &&
-          model.Find(pasted[0])->children == std::vector<uint32_t>({pasted[2]}) &&
-          model.Find(pasted[2])->children == std::vector<uint32_t>({pasted[1]}));
-    CHECK(model.PasteNodes("not a tree").empty());
-
-    // 根は消せない。消した節は親の子の一覧からも消える。
+          model.Find(pasted[0])->type == "Sequence" && model.Find(pasted[0])->children.size() == 1u);
+    CHECK(model.PasteNodes("not a tree", registry, 0u, added).empty() && added.empty());
+    // 消すのは既定で一支ごと。
+    CHECK(model.RemoveNodes(registry, std::vector<uint32_t>{pasted[0]}, false, message) == 3u &&
+          model.Document().nodes.size() == 5u);
+    // 根は消せない。子を残して消すと、子が消した節の居た所に入る。
     const std::vector<uint32_t> removed{root, inverter};
-    CHECK(model.RemoveNodes(removed, message) == 1u && model.Find(root) != nullptr &&
-          model.Find(sequence)->children.empty() && model.ParentOf(left) == 0u);
+    CHECK(model.RemoveNodes(registry, removed, true, message) == 1u && model.Find(root) != nullptr &&
+          model.Find(sequence)->children == std::vector<uint32_t>({left}) && model.ParentOf(left) == sequence);
 
     TreeModel reloaded{};
-    CHECK(model.Connect(registry, sequence, left, kLast, message));
     CHECK(reloaded.Load(model.Save(), message) && reloaded.Document().nodes.size() == model.Document().nodes.size() &&
           reloaded.Find(sequence)->children == model.Find(sequence)->children);
+}
+
+// 形を変える編集：挟む、種類を替える（子と参数の残し方）、止める（編訳の決まり）、貼り付け先、切り出しと展開の往復。
+void CheckRestructure(const NodeRegistry& registry) {
+    using namespace HIKARI::BEHAVIOR::EDITING;
+    TreeModel model{};
+    std::string message{};
+    CHECK(model.Load(R"({"formatVersion": 3, "blackboard": [{"name": "delay", "type": "float", "value": 1}],
+        "root": 1, "nodes": [
+        {"id": 1, "type": "Selector", "children": [2, 5]},
+        {"id": 2, "type": "Sequence", "name": "Chase", "params": {"reactive": true}, "children": [3, 4]},
+        {"id": 3, "type": "Wait", "params": {"seconds": {"key": "delay"}}}, {"id": 4, "type": "Wait"},
+        {"id": 5, "type": "Fail"}]})",
+                     message));
+    // 樹の形を種類名で書く（id に依らない比べ方）。
+    const auto shape = [&](auto&& self, uint32_t id) -> std::string {
+        const DocumentNode* node = model.Find(id);
+        if (node == nullptr) {
+            return "?";
+        }
+        std::string text = node->type;
+        if (!node->children.empty()) {
+            text += "(";
+            for (const uint32_t child : node->children) {
+                text += self(self, child) + (child != node->children.back() ? "," : "");
+            }
+            text += ")";
+        }
+        return text;
+    };
+    // 挟む：親の子の同じ位置に入り、元の節はその子。葉では挟めない。根を挟むと挟んだ節が根。
+    const uint32_t inverter = model.Wrap(registry, 5u, "Inverter", message);
+    CHECK(inverter != 0u && model.Find(1u)->children == std::vector<uint32_t>({2u, inverter}) &&
+          model.Find(inverter)->children == std::vector<uint32_t>({5u}));
+    CHECK(model.Wrap(registry, 5u, "Wait", message) == 0u && !message.empty());
+    const uint32_t top = model.Wrap(registry, 1u, "Sequence", message);
+    CHECK(top != 0u && model.Document().root == top && model.ParentOf(1u) == top);
+    // 替える：子と名前と型の合う参数は残る。入り切らない子があれば断り、許せば外す。
+    CHECK(model.Replace(registry, 2u, "Selector", false, message) && model.Find(2u)->name == "Chase" &&
+          model.Find(2u)->children.size() == 2u && model.Find(2u)->params.size() == 1u);
+    message.clear();
+    CHECK(!model.Replace(registry, 2u, "Inverter", false, message) && !message.empty() &&
+          model.Find(2u)->type == "Selector");
+    CHECK(model.Replace(registry, 2u, "Inverter", true, message) &&
+          model.Find(2u)->children == std::vector<uint32_t>({3u}) && model.ParentOf(4u) == 0u &&
+          model.Find(2u)->params.empty());
+    // 切り出して展開すると同じ形に戻り、使っていた黒板のキーも付いてくる。
+    const std::string before = shape(shape, top);
+    const TreeDocument branch = model.Branch(2u);
+    CHECK(branch.root == 2u && branch.nodes.size() == 2u && branch.blackboard.size() == 1u &&
+          branch.blackboard[0].name == "delay");
+    const uint32_t subtree = model.ReplaceWithSubtree(2u, "0123456789abcdef0123456789abcdef", message);
+    CHECK(subtree != 0u && model.Find(2u) == nullptr && model.Find(3u) == nullptr &&
+          model.Find(subtree)->name == "Chase" && shape(shape, top) == "Sequence(Selector(Subtree,Inverter(Fail)))");
+    const uint32_t inlined = model.InlineSubtree(subtree, branch, message);
+    CHECK(inlined != 0u && model.Find(subtree) == nullptr && shape(shape, top) == before);
+    // 止める：一支ごと編訳から外れ、親に使える子が無ければ警告。根は止められない。
+    CHECK(model.SetEnabled(inverter, false, message) && model.SetEnabled(inlined, false, message) &&
+          !model.SetEnabled(top, false, message));
+    const std::vector<Problem> problems = model.Validate(registry, {});
+    CHECK(std::any_of(problems.begin(), problems.end(),
+                      [](const Problem& problem) { return problem.warning && problem.nodeId == 1u; }));
+    CompiledTree compiled{};
+    Message error{};
+    CHECK(CompileTree(model.Document(), registry, {}, compiled, error) && compiled.nodes.size() == 2u);
+    TreeInstance instance{};
+    instance.Bind(std::make_shared<CompiledTree>(compiled));
+    CHECK(Step(instance) == Status::Failure);
+    // 貼り付けは親の最後の子に。子が一杯の装飾には入れない（どこにも繋がらない）。
+    std::vector<std::string> added{};
+    const std::vector<uint32_t> pasted =
+        model.PasteNodes(model.CopyNodes(std::vector<uint32_t>{4u}), registry, 1u, added);
+    CHECK(pasted.size() == 1u && model.ParentOf(pasted[0]) == 1u && model.Find(1u)->children.back() == pasted[0]);
+    const std::vector<uint32_t> loose =
+        model.PasteNodes(model.CopyNodes(std::vector<uint32_t>{4u}), registry, inverter, added);
+    CHECK(loose.size() == 1u && model.ParentOf(loose[0]) == 0u);
+    // 検索：名前、種類、黒板のキー。
+    CHECK(FindNodes(model, registry, "chase").size() == 1u && FindNodes(model, registry, "DELAY").size() == 1u &&
+          FindNodes(model, registry, "").empty());
 }
 
 // 編集器が Play 中に読む進み具合：Wait の経った秒、Repeat の何回目、TimeLimit の使った時間。
@@ -926,6 +1006,7 @@ int main() {
     CheckEditorModel(registry);
     CheckEditorLayout(registry);
     CheckProgress(registry);
+    CheckRestructure(registry);
     // 登記を外すと版が進み、種類は見つからなくなる（編訳済みの樹は作り直しになる）。
     const uint64_t registered = registry.Revision();
     CHECK(registry.Unregister(&trace) == 4u && registry.Revision() != registered &&

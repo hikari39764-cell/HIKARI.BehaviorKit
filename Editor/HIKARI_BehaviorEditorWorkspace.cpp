@@ -120,10 +120,12 @@ void TreeWorkspace::Commit(OpenTree& tree, Message message) {
 
 void TreeWorkspace::RefreshTypes() {
     const NodeRegistry& registry = Registry();
-    if (typesRevision_ == registry.Revision()) {
+    if (typesRevision_ == registry.Revision() && !recentChanged_) {
         return;
     }
     typesRevision_ = registry.Revision();
+    recentChanged_ = false;
+    std::erase_if(recent_, [&](const std::string& name) { return registry.Find(name) == nullptr; });
     std::vector<const NodeType*> types{};
     for (const auto& type : registry.Types()) {
         types.push_back(type.get());
@@ -133,12 +135,31 @@ void TreeWorkspace::RefreshTypes() {
         return std::tuple(rank(left), std::string_view(left->category), std::string_view(left->displayName)) <
                std::tuple(rank(right), std::string_view(right->category), std::string_view(right->displayName));
     });
-    typeNames_.clear();
-    createItems_.clear();
+    // 一覧の頭に最近使った種類（小見出し無し）、その後に全部の種類を分類ごとに。図の献立と左の節点库が同じ一覧を使う。
+    std::vector<std::pair<const NodeType*, bool>> entries{};
+    for (const std::string& name : recent_) {
+        entries.emplace_back(registry.Find(name), true);
+    }
     for (const NodeType* type : types) {
+        entries.emplace_back(type, false);
+    }
+    typeNames_.clear();
+    typeKeywords_.clear();
+    createItems_.clear();
+    typeKeywords_.reserve(entries.size());
+    for (const auto& [type, recent] : entries) {
         typeNames_.push_back(type->typeName);
+        typeKeywords_.push_back(type->typeName + " " + type->displayName + " " + type->category + " " +
+                                type->description);
+        // 挟めるのは子を持てる種類だけ。
+        const uint32_t modes = MaximumChildren(type) != 0u
+                                   ? 0u
+                                   : (1u << static_cast<uint32_t>(EditorNodeGraphCreateMode::Place)) |
+                                         (1u << static_cast<uint32_t>(EditorNodeGraphCreateMode::AddChild)) |
+                                         (1u << static_cast<uint32_t>(EditorNodeGraphCreateMode::Replace));
         // 文字は種類の表が持つ。種類が外れると版が進むので、その前にここを作り直す。
-        createItems_.push_back({type->displayName.c_str(), type->category.c_str()});
+        createItems_.push_back({type->displayName.c_str(), recent ? nullptr : type->category.c_str(),
+                                typeKeywords_.back().c_str(), modes, 0u});
     }
 }
 
@@ -158,7 +179,7 @@ void TreeWorkspace::DrawTrees(IEditorWorkspaceUi& ui) {
         ui.Tooltip("Where to create a tree, under Assets. For example: Behavior/Guard");
         if (ui.Button("create", "Create Tree")) {
             std::string message{};
-            status_ = editor.Create(newName_, message) != nullptr
+            status_ = editor.Create(newName_, TreeModel::MakeNew(), message) != nullptr
                           ? Message{"Created the tree."}
                           : Message{"Could not create the tree: {0}", {message}};
         }
@@ -215,11 +236,55 @@ void TreeWorkspace::DrawTreeButtons(IEditorWorkspaceUi& ui, OpenTree& tree) {
 void TreeWorkspace::DrawLibrary(IEditorWorkspaceUi& ui) {
     RefreshTypes();
     ui.Text("Nodes");
-    ui.Tooltip("Click a node to add it under the selected node.");
+    ui.Tooltip("Click a node to add it under the selected node. Tab on the graph does the same next to the node.");
+    ui.InputText("library.search", "Search", librarySearch_, sizeof(librarySearch_));
+    ui.Tooltip("Matches the name in the current language, the type name and words of the description.");
+    const std::string_view query = librarySearch_;
+    const auto item = [&](size_t index, std::string_view idPrefix) {
+        const NodeType* type = Registry().Find(typeNames_[index]);
+        if (type == nullptr) {
+            return;
+        }
+        if (ui.Selectable(std::string(idPrefix) + type->typeName, type->displayName)) {
+            if (OpenTree* tree = editor_->Current()) {
+                AddFromLibrary(*tree, type->typeName);
+            }
+        }
+        // 図へ引いて落とせる：節の上は子に、線の上はその間に挟む、何も無い所はどこにも繋がらない節。
+        ui.DragSource(kTypePayload, type->typeName, type->displayName);
+        // 説明と参数の一覧。
+        std::string tip = std::string(ui.Translate(type->description));
+        if (!type->params.empty()) {
+            tip += "\n";
+            for (const ParamSpec& param : type->params) {
+                tip += "\n- " + std::string(ui.Translate(param.label));
+            }
+        }
+        ui.Tooltip(Verbatim(tip));
+    };
     const std::string* category = nullptr;
     bool open = false;
-    for (const std::string& typeName : typeNames_) {
-        const NodeType* type = Registry().Find(typeName);
+    for (size_t index = 0u; index < typeNames_.size(); ++index) {
+        const EditorNodeGraphMenuItem& entry = createItems_[index];
+        const bool recent = entry.category == nullptr;
+        if (!query.empty()) {
+            // 絞り込み中は最近使った物を重ねて出さず、名前か手がかりの字に合う種類だけを並べる。
+            if (!recent &&
+                (MatchesQuery(ui.Translate(entry.label), query) || MatchesQuery(typeKeywords_[index], query))) {
+                item(index, "found.");
+            }
+            continue;
+        }
+        if (recent) {
+            if (index == 0u) {
+                open = ui.Section("category.recent", "Recently Used");
+            }
+            if (open) {
+                item(index, "recent.");
+            }
+            continue;
+        }
+        const NodeType* type = Registry().Find(typeNames_[index]);
         if (type == nullptr) {
             continue;
         }
@@ -227,16 +292,19 @@ void TreeWorkspace::DrawLibrary(IEditorWorkspaceUi& ui) {
             category = &type->category;
             open = ui.Section("category." + type->category, type->category.empty() ? "Other" : type->category);
         }
-        if (!open) {
-            continue;
+        if (open) {
+            item(index, "add.");
         }
-        if (ui.Selectable("add." + type->typeName, type->displayName)) {
-            if (OpenTree* tree = editor_->Current()) {
-                AddFromLibrary(*tree, type->typeName);
-            }
-        }
-        ui.Tooltip(type->description);
     }
+}
+
+void TreeWorkspace::RememberType(std::string_view typeName) {
+    std::erase(recent_, std::string(typeName));
+    recent_.insert(recent_.begin(), std::string(typeName));
+    if (recent_.size() > kRecentTypes) {
+        recent_.resize(kRecentTypes);
+    }
+    recentChanged_ = true;
 }
 
 // 選んでいる節の下（子を持てない節なら、その親の下）の最後に足す。選んでいなければ、どこにも繋がずに置く。
@@ -260,6 +328,7 @@ void TreeWorkspace::AddFromLibrary(OpenTree& tree, const std::string& typeName) 
         status_ = Plain(message);
         return;
     }
+    RememberType(typeName);
     if (parent != 0u) {
         model.Connect(registry, parent, id, TreeModel::kLast, message);
     }

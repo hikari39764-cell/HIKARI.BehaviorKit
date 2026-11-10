@@ -29,6 +29,40 @@ size_t MaximumChildren(const NodeType* type) noexcept {
     return type->IsDecorator() ? 1u : (std::numeric_limits<size_t>::max)();
 }
 
+bool MatchesQuery(std::string_view text, std::string_view query) {
+    if (query.empty()) {
+        return true;
+    }
+    const auto lower = [](char value) {
+        return value >= 'A' && value <= 'Z' ? static_cast<char>(value - 'A' + 'a') : value;
+    };
+    return std::search(text.begin(), text.end(), query.begin(), query.end(),
+                       [&](char a, char b) { return lower(a) == lower(b); }) != text.end();
+}
+
+std::vector<uint32_t> FindNodes(const TreeModel& model, const NodeRegistry& registry, std::string_view query,
+                                const std::function<std::string_view(std::string_view)>& translate) {
+    std::vector<uint32_t> found{};
+    if (query.empty()) {
+        return found;
+    }
+    for (const DocumentNode& node : model.Document().nodes) {
+        const NodeType* type = registry.Find(node.type);
+        bool match = MatchesQuery(node.name, query) || MatchesQuery(node.type, query);
+        if (type != nullptr) {
+            match = match || MatchesQuery(type->displayName, query) ||
+                    (translate && MatchesQuery(translate(type->displayName), query));
+        }
+        for (const DocumentParam& param : node.params) {
+            match = match || (param.isKey && MatchesQuery(param.key, query));
+        }
+        if (match) {
+            found.push_back(node.id);
+        }
+    }
+    return found;
+}
+
 TreeDocument TreeModel::MakeNew() {
     TreeDocument document{};
     document.root = 1u;
@@ -84,21 +118,6 @@ uint32_t TreeModel::AddNode(const NodeRegistry& registry, std::string_view type,
     node.type = std::string(type);
     document_.nodes.push_back(std::move(node));
     return document_.nodes.back().id;
-}
-
-size_t TreeModel::RemoveNodes(std::span<const uint32_t> ids, std::string& message) {
-    const auto listed = [&](uint32_t id) {
-        return id != document_.root && std::find(ids.begin(), ids.end(), id) != ids.end();
-    };
-    if (std::find(ids.begin(), ids.end(), document_.root) != ids.end()) {
-        message = "The root was kept: make another node the root before deleting it.";
-    }
-    const size_t before = document_.nodes.size();
-    std::erase_if(document_.nodes, [&](const DocumentNode& node) { return listed(node.id); });
-    for (DocumentNode& node : document_.nodes) {
-        std::erase_if(node.children, listed);
-    }
-    return before - document_.nodes.size();
 }
 
 AttachProblem TreeModel::CheckAttach(const NodeRegistry& registry, uint32_t parent, uint32_t child) const noexcept {
@@ -246,47 +265,6 @@ bool TreeModel::RemoveKey(std::string_view name) {
     return std::erase_if(document_.blackboard, [&](const DocumentKey& key) { return key.name == name; }) != 0u;
 }
 
-std::string TreeModel::CopyNodes(std::span<const uint32_t> ids) const {
-    TreeDocument copy{};
-    for (const DocumentNode& node : document_.nodes) {
-        if (std::find(ids.begin(), ids.end(), node.id) == ids.end()) {
-            continue;
-        }
-        DocumentNode copied = node;
-        std::erase_if(copied.children,
-                      [&](uint32_t child) { return std::find(ids.begin(), ids.end(), child) == ids.end(); });
-        copy.nodes.push_back(std::move(copied));
-    }
-    if (copy.nodes.empty()) {
-        return {};
-    }
-    copy.root = copy.nodes.front().id;
-    return SerializeTreeDocument(copy);
-}
-
-std::vector<uint32_t> TreeModel::PasteNodes(std::string_view text) {
-    TreeDocument pasted{};
-    std::string error{};
-    if (!ParseTreeDocument(text, pasted, error)) {
-        return {};
-    }
-    std::unordered_map<uint32_t, uint32_t> renamed{};
-    uint32_t next = NextId();
-    for (const DocumentNode& node : pasted.nodes) {
-        renamed[node.id] = next++;
-    }
-    std::vector<uint32_t> created{};
-    for (DocumentNode& node : pasted.nodes) {
-        node.id = renamed[node.id];
-        for (uint32_t& child : node.children) {
-            child = renamed[child];
-        }
-        created.push_back(node.id);
-        document_.nodes.push_back(std::move(node));
-    }
-    return created;
-}
-
 std::vector<Problem> TreeModel::Validate(const NodeRegistry& registry, const LoadSubtreeFn& loadSubtree) const {
     std::vector<Problem> problems{};
     CompiledTree compiled{};
@@ -306,6 +284,18 @@ std::vector<Problem> TreeModel::Validate(const NodeRegistry& registry, const Loa
     };
     visit(visit, document_.root);
     for (const DocumentNode& node : document_.nodes) {
+        // 子が全部止めてある：この節は走ると失敗する。
+        const bool allDisabled = !node.disabled && !node.children.empty() &&
+                                 std::all_of(node.children.begin(), node.children.end(), [&](uint32_t child) {
+                                     const DocumentNode* item = Find(child);
+                                     return item != nullptr && item->disabled;
+                                 });
+        if (allDisabled && reachable.contains(node.id)) {
+            problems.push_back(
+                {node.id,
+                 {"node {0} ({1}) has only disabled children and will fail", {std::to_string(node.id), node.type}},
+                 true});
+        }
         if (!reachable.contains(node.id)) {
             problems.push_back(
                 {node.id,

@@ -25,7 +25,8 @@
 // Subtree の "tree" は、埋め込む樹の資産の GUID。
 // 黒板の型："bool"、"int"、"float"、"vec3"、"object"（object は初期値を持てない）。
 // 画布での位置は持たない（編集器が樹の形から毎回並べる）。"collapsed" は編集器で子を畳んでいる印、"name" と "note" は
-// 作り手が付けた名前と注（訳さない）で、どれも実行には使わない。
+// 作り手が付けた名前と注（訳さない）で、どれも実行には使わない。"disabled": true の節は一支ごと無いものとして編訳する
+// （親に使える子が無くなれば、親はその時失敗する）。
 // 根から辿れない節があってもよい（編集の途中の形。編集器は右の列に並べる）。
 namespace HIKARI::BEHAVIOR {
 
@@ -53,6 +54,8 @@ struct DocumentNode {
     std::string type{};
     // 編集器で子を畳んでいる。
     bool collapsed = false;
+    // 一支ごと止めてある。
+    bool disabled = false;
     // 作り手が付けた名前（空なら種類の名前を出す）と注。
     std::string name{};
     std::string note{};

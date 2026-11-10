@@ -88,7 +88,13 @@ public:
     // 資産を開いて今の樹にする（もう開いていればそれを選ぶ）。失敗は nullptr と理由。
     OpenTree* Open(std::string_view guid, std::string& message);
     // 根だけの新しい樹を Assets の下に作って保存し、今の樹にする。拡張子（.hbtree）は無ければ足す。
-    OpenTree* Create(std::string_view assetsRelativePath, std::string& message);
+    // content を中身にした樹の資産を作り、すぐ保存して開く（新しい樹は TreeModel::MakeNew()）。
+    OpenTree* Create(std::string_view assetsRelativePath, const TreeDocument& content, std::string& message);
+    // tree の node から下の一支を新しい樹の資産（path）に切り出し、元の所を Subtree の節に替える。Subtree の節の id、
+    // 断れば 0。tree への変更を積むのは呼び手。
+    uint32_t ExtractSubtree(OpenTree& tree, uint32_t node, std::string_view path, std::string& message);
+    // Subtree の節を、埋め込んでいる樹の中身の写しに替える。写しの根の id、断れば 0。
+    uint32_t InlineSubtree(OpenTree& tree, uint32_t node, std::string& message);
     bool Save(OpenTree& tree, std::string& message);
     bool SaveAll(std::string& message);
     // 保存していない変更がある樹は、discardChanges が真の時だけ閉じる。閉じたら tree は無効。

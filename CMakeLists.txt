@@ -45,7 +45,8 @@ enable_testing()
 add_executable(HIKARI_BehaviorTreeContracts EXCLUDE_FROM_ALL
                "${CMAKE_CURRENT_SOURCE_DIR}/Tests/HIKARI_BehaviorTreeContracts.cpp"
                "${CMAKE_CURRENT_SOURCE_DIR}/Editor/HIKARI_BehaviorEditorModel.cpp"
-               "${CMAKE_CURRENT_SOURCE_DIR}/Editor/HIKARI_BehaviorEditorLayout.cpp")
+               "${CMAKE_CURRENT_SOURCE_DIR}/Editor/HIKARI_BehaviorEditorLayout.cpp"
+               "${CMAKE_CURRENT_SOURCE_DIR}/Editor/HIKARI_BehaviorEditorRestructure.cpp")
 target_include_directories(HIKARI_BehaviorTreeContracts PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/Editor")
 target_link_libraries(HIKARI_BehaviorTreeContracts PRIVATE behaviorkit_core)
 hikari_configure_module_target(HIKARI_BehaviorTreeContracts)

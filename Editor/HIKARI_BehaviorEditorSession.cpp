@@ -129,7 +129,7 @@ OpenTree* TreeEditor::Open(std::string_view guid, std::string& message) {
     return tree;
 }
 
-OpenTree* TreeEditor::Create(std::string_view assetsRelativePath, std::string& message) {
+OpenTree* TreeEditor::Create(std::string_view assetsRelativePath, const TreeDocument& content, std::string& message) {
     if (documents_ == nullptr) {
         message = "the editor documents are not available";
         return nullptr;
@@ -138,7 +138,7 @@ OpenTree* TreeEditor::Create(std::string_view assetsRelativePath, std::string& m
     if (!path.ends_with(kTreeExtension)) {
         path += kTreeExtension;
     }
-    OpenTree* tree = Adopt(documents_->CreateAsset(path, SerializeTreeDocument(TreeModel::MakeNew())), message);
+    OpenTree* tree = Adopt(documents_->CreateAsset(path, SerializeTreeDocument(content)), message);
     ForgetNames();
     // 資産の GUID は最初の保存で決まる。部品や他の樹から指せるよう、すぐ保存する。
     if (tree != nullptr && !Save(*tree, message)) {
@@ -291,6 +291,36 @@ const std::vector<Problem>& TreeEditor::Problems(OpenTree& tree) {
             });
     }
     return tree.problems_;
+}
+
+uint32_t TreeEditor::ExtractSubtree(OpenTree& tree, uint32_t node, std::string_view path, std::string& message) {
+    if (tree.model.Find(node) == nullptr) {
+        message = "The node does not exist.";
+        return 0u;
+    }
+    OpenTree* created = Create(path, tree.model.Branch(node), message);
+    if (created == nullptr) {
+        return 0u;
+    }
+    SetCurrent(tree);
+    return tree.model.ReplaceWithSubtree(node, created->guid, message);
+}
+
+uint32_t TreeEditor::InlineSubtree(OpenTree& tree, uint32_t node, std::string& message) {
+    const DocumentNode* subtree = tree.model.Find(node);
+    const auto reference = subtree != nullptr
+                               ? std::find_if(subtree->params.begin(), subtree->params.end(),
+                                              [](const DocumentParam& param) { return param.name == "tree"; })
+                               : std::vector<DocumentParam>::const_iterator{};
+    if (subtree == nullptr || subtree->type != "Subtree" || reference == subtree->params.end() || !reference->isText) {
+        message = "Only a Subtree node that names a tree can be expanded.";
+        return 0u;
+    }
+    TreeDocument content{};
+    if (!ReadTree(reference->text, content, message)) {
+        return 0u;
+    }
+    return tree.model.InlineSubtree(node, content, message);
 }
 
 bool TreeEditor::ReadTree(std::string_view guid, TreeDocument& out, std::string& error) {

@@ -141,12 +141,14 @@ bool ReadNode(const Json& json, DocumentNode& out, std::string& error) {
             *target = text->get<std::string>();
         }
     }
-    if (const auto collapsed = json.find("collapsed"); collapsed != json.end()) {
-        if (!collapsed->is_boolean()) {
-            error = where + ": \"collapsed\" must be true or false";
-            return false;
+    for (const auto& [field, target] : {std::pair{"collapsed", &out.collapsed}, std::pair{"disabled", &out.disabled}}) {
+        if (const auto flag = json.find(field); flag != json.end()) {
+            if (!flag->is_boolean()) {
+                error = where + ": \"" + field + "\" must be true or false";
+                return false;
+            }
+            *target = flag->get<bool>();
         }
-        out.collapsed = collapsed->get<bool>();
     }
     if (const auto children = json.find("children"); children != json.end()) {
         if (!children->is_array()) {
@@ -282,6 +284,9 @@ std::string SerializeTreeDocument(const TreeDocument& document) {
         }
         if (node.collapsed) {
             entry["collapsed"] = true;
+        }
+        if (node.disabled) {
+            entry["disabled"] = true;
         }
         if (!node.params.empty()) {
             OrderedJson params = OrderedJson::object();

@@ -100,6 +100,12 @@ private:
         }
         std::vector<uint32_t> children{};
         for (const uint32_t child : node.children) {
+            // 止めた節は一支ごと飛ばす（使える子が無くなった親は、その時失敗する）。
+            const auto childNode = std::find_if(document.nodes.begin(), document.nodes.end(),
+                                                [&](const DocumentNode& item) { return item.id == child; });
+            if (childNode != document.nodes.end() && childNode->disabled) {
+                continue;
+            }
             uint32_t childIndex = 0u;
             if (!EmitNode(document, sourceTree, child, placed, childIndex, error)) {
                 return false;

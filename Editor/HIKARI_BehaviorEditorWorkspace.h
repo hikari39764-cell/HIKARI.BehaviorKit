@@ -21,6 +21,12 @@ inline Message Plain(std::string message) { return message.empty() ? Message{} :
 // 模板を今の言語で組んだ、そのまま出す字（Verbatim の印付き）。
 std::string Show(EDITOR_PROJECT::IEditorWorkspaceUi& ui, const Message& text);
 
+// 節点库から図へ引いてくる時の荷物の種類（中身は節の型名）。
+inline constexpr char kTypePayload[] = "behaviortree.type";
+
+// 節を右クリックした献立のモジュールの操作（中身は HIKARI_BehaviorEditorWorkspaceGraph.cpp）。
+enum class NodeAction : int32_t;
+
 class TreeWorkspace final : public EDITOR_PROJECT::IEditorWorkspace {
 public:
     explicit TreeWorkspace(std::shared_ptr<TreeEditor> editor);
@@ -49,6 +55,8 @@ private:
     void DrawTreeButtons(EDITOR_PROJECT::IEditorWorkspaceUi& ui, OpenTree& tree);
     void DrawLibrary(EDITOR_PROJECT::IEditorWorkspaceUi& ui);
     void AddFromLibrary(OpenTree& tree, const std::string& typeName);
+    // 最近使った種類の一覧の頭に入れる（一覧は次の RefreshTypes で作り直す）。
+    void RememberType(std::string_view typeName);
     void DrawDetails(EDITOR_PROJECT::IEditorWorkspaceUi& ui, OpenTree* tree, const RunView& run);
     void DrawLabelFields(EDITOR_PROJECT::IEditorWorkspaceUi& ui, OpenTree& tree, const DocumentNode& node);
     void DrawBlackboard(EDITOR_PROJECT::IEditorWorkspaceUi& ui, OpenTree& tree, const RunView& run);
@@ -74,6 +82,15 @@ private:
     void DrawGraph(EDITOR_PROJECT::IEditorWorkspaceUi& ui, OpenTree& tree, const RunView& run);
     void ApplyGraphResult(EDITOR_PROJECT::IEditorWorkspaceUi& ui, OpenTree& tree, const TreeLayout& layout,
                           const EDITOR_PROJECT::EditorNodeGraphResult& result);
+    // 図の上の検索欄（Next で次の一致を選んで見せる）。
+    void DrawFind(EDITOR_PROJECT::IEditorWorkspaceUi& ui, OpenTree& tree);
+    // 図の献立で種類を選んだ：置く・子を足す・挟む・置き換える。
+    void CreateFromMenu(OpenTree& tree, const std::string& typeName,
+                        const EDITOR_PROJECT::EditorNodeGraphResult& result);
+    // 節の献立のモジュールの操作（番号は図の kNodeActions の並び）。
+    void ApplyNodeAction(OpenTree& tree, NodeAction action);
+    // 節点库から引いてきた種類を図に落とした。
+    void DropType(OpenTree& tree, const std::string& typeName, const EDITOR_PROJECT::EditorNodeGraphResult& result);
     // Play 中の節の強調：走っている節は濃く、結果は kResultFadeSeconds で薄れる。
     void UpdateShownStates(const OpenTree& tree, const RunView& run);
     // 拖動中にポインタの横へ出す、離すと何が起きるか（置けない時はその理由）。
@@ -88,8 +105,22 @@ private:
     int32_t removeKey_ = 0;
     // 節の種類の並び（図の献立の番号と同じ）と、それを作った時の種類の表の版。
     std::vector<std::string> typeNames_{};
+    // 絞り込みの手がかり（型名、表示名、分類、説明）。createItems_ が指す。
+    std::vector<std::string> typeKeywords_{};
     std::vector<EDITOR_PROJECT::EditorNodeGraphMenuItem> createItems_{};
     uint64_t typesRevision_ = 0u;
+    // 最近使った種類（新しい順）。一覧の頭に出す。
+    static constexpr size_t kRecentTypes = 5u;
+    std::vector<std::string> recent_{};
+    bool recentChanged_ = false;
+    char librarySearch_[64]{};
+    // 図の上の節の検索：打った字、今見ている一致の番号。
+    char findText_[64]{};
+    size_t findIndex_ = 0u;
+    uint32_t findFocus_ = 0u;
+    // 種類を替えると子が入り切らないと断られた時の節と種類（同じ置き換えをもう一度選ぶと、入り切らない子を外して替える）。
+    uint32_t replaceNode_ = 0u;
+    std::string replaceType_{};
 
     // 節を拖動している間の、前のフレームに決めた落とし先と、その知らせ。
     struct DragDrop {

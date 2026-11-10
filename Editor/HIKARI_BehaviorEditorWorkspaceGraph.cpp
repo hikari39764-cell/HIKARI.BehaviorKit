@@ -2,6 +2,7 @@
 #include <array>
 #include <cstring>
 #include <iterator>
+#include <unordered_set>
 #include <utility>
 
 #include "HIKARI_BehaviorEditorFields.h"
@@ -11,12 +12,24 @@
 // 作業区の中央の面板：樹を毎フレーム並べ直して節点図として出し、図で起きたこと（節の拖動、線引き、畳む、献立、複写）を
 // 樹に書く。樹のファイルは位置を持たない。
 namespace HIKARI::BEHAVIOR::EDITING {
+
+enum class NodeAction : int32_t {
+    SetRoot,
+    Disconnect,
+    DeleteOnly,
+    ToggleEnabled,
+    Extract,
+    Inline,
+};
+
 namespace {
 
 using namespace HIKARI::EDITOR_PROJECT;
 
-constexpr EditorNodeGraphMenuItem kNodeActions[] = {{"Set As Root", nullptr}, {"Disconnect From Parent", nullptr}};
-enum : int32_t { kActionSetRoot, kActionDisconnect };
+// 並びは NodeAction の順。
+constexpr EditorNodeGraphMenuItem kNodeActions[] = {{"Set As Root"},           {"Disconnect From Parent"},
+                                                    {"Delete Only This Node"}, {"Disable / Enable Branch"},
+                                                    {"Extract To Subtree"},    {"Expand Subtree Here"}};
 
 // 節の種類ごとの見た目：題の帯の色と、題の左の印（色だけに頼らない）。
 struct KindStyle {
@@ -160,6 +173,8 @@ void TreeWorkspace::DrawGraph(IEditorWorkspaceUi& ui, OpenTree& tree, const RunV
     ui.Checkbox("followRunning", "Follow Running Node", &followRunning_);
     ui.Tooltip("During Play, keep the node that is running now in view.");
     ui.SameLine();
+    DrawFind(ui, tree);
+    ui.SameLine();
     ui.Text(StatusLine(ui, tree, problems.size(), run));
 
     const TreeDocument& document = model.Document();
@@ -178,6 +193,20 @@ void TreeWorkspace::DrawGraph(IEditorWorkspaceUi& ui, OpenTree& tree, const RunV
     UpdateShownStates(tree, run);
     // まだ測っていない節がある間は、測った大きさで並べ直した後にもう一度全体へ視点を合わせる。
     bool measured = true;
+    // 止めた節と、その下の節（灰色に描く）。
+    std::unordered_set<uint32_t> disabled{};
+    for (const DocumentNode& node : document.nodes) {
+        if (node.disabled) {
+            std::vector<uint32_t> stack{node.id};
+            while (!stack.empty()) {
+                const uint32_t id = stack.back();
+                stack.pop_back();
+                if (const DocumentNode* item = model.Find(id); item != nullptr && disabled.insert(id).second) {
+                    stack.insert(stack.end(), item->children.begin(), item->children.end());
+                }
+            }
+        }
+    }
     for (size_t index = 0u; index < count; ++index) {
         const LaidOutNode& laid = layout.nodes[index];
         const DocumentNode& source = *model.Find(laid.id);
@@ -264,6 +293,9 @@ void TreeWorkspace::DrawGraph(IEditorWorkspaceUi& ui, OpenTree& tree, const RunV
         if (!source.children.empty()) {
             node.flags |= static_cast<uint32_t>(EditorNodeGraphNodeFlag::Collapsible);
         }
+        if (disabled.contains(source.id)) {
+            node.flags |= static_cast<uint32_t>(EditorNodeGraphNodeFlag::Disabled);
+        }
         if (source.collapsed) {
             node.flags |= static_cast<uint32_t>(EditorNodeGraphNodeFlag::Collapsed);
             node.hiddenCount = laid.hidden;
@@ -298,6 +330,10 @@ void TreeWorkspace::DrawGraph(IEditorWorkspaceUi& ui, OpenTree& tree, const RunV
     desc.linkStyle = EditorNodeGraphLinkStyle::Elbow;
     desc.dragDescendants = 1u;
     desc.nodeWidthStep = kNodeWidthStep;
+    desc.dropPayloadType = kTypePayload;
+    desc.createModes = (1u << static_cast<uint32_t>(EditorNodeGraphCreateMode::AddChild)) |
+                       (1u << static_cast<uint32_t>(EditorNodeGraphCreateMode::Wrap)) |
+                       (1u << static_cast<uint32_t>(EditorNodeGraphCreateMode::Replace));
     desc.nodeMaxWidth = kNodeMaxWidth;
     desc.nodes = nodes.data();
     desc.nodeCount = static_cast<uint32_t>(nodes.size());
@@ -323,6 +359,10 @@ void TreeWorkspace::DrawGraph(IEditorWorkspaceUi& ui, OpenTree& tree, const RunV
     }
     if (followRunning_ && run.user != nullptr) {
         desc.followNodeId = RunningLeaf(model, layout, run);
+    }
+    // 検索で選んだ節を見える所へ。
+    if (findFocus_ != 0u && layout.Find(findFocus_) != nullptr) {
+        desc.followNodeId = findFocus_;
     }
     EditorNodeGraphResult result{};
     // 視点と選択は樹ごとに覚えてもらう。
@@ -366,6 +406,193 @@ void TreeWorkspace::UpdateShownStates(const OpenTree& tree, const RunView& run) 
             shown.state = NodeState::Idle;
             shown.strength = 0.0f;
         }
+    }
+}
+
+void TreeWorkspace::DrawFind(IEditorWorkspaceUi& ui, OpenTree& tree) {
+    const std::string before = findText_;
+    const bool next = ui.InputText("find", "Find", findText_, sizeof(findText_));
+    ui.Tooltip("Find nodes by name, type or blackboard key. Next jumps to the following match.");
+    ui.SameLine();
+    const bool step = ui.Button("findNext", "Next");
+    if (!next && !step) {
+        return;
+    }
+    const std::vector<uint32_t> found =
+        FindNodes(tree.model, Registry(), findText_, [&](std::string_view text) { return ui.Translate(text); });
+    if (found.empty()) {
+        findFocus_ = 0u;
+        status_ = std::string_view(findText_).empty() ? Message{} : Message{"No node matches \"{0}\".", {findText_}};
+        return;
+    }
+    findIndex_ = before != findText_ ? 0u : (findIndex_ + (step ? 1u : 0u)) % found.size();
+    findFocus_ = found[findIndex_];
+    // 畳んだ下の節なら、畳みを開いて見せる。
+    for (uint32_t parent = tree.model.ParentOf(findFocus_); parent != 0u; parent = tree.model.ParentOf(parent)) {
+        if (tree.model.Find(parent)->collapsed) {
+            tree.model.SetCollapsed(parent, false);
+            Commit(tree);
+        }
+    }
+    tree.Select({findFocus_});
+    status_ = {"Match {0} of {1}.", {std::to_string(findIndex_ + 1u), std::to_string(found.size())}};
+}
+
+void TreeWorkspace::CreateFromMenu(OpenTree& tree, const std::string& typeName, const EditorNodeGraphResult& result) {
+    const NodeRegistry& registry = Registry();
+    TreeModel& model = tree.model;
+    std::string message{};
+    const uint32_t target = tree.selected.size() == 1u ? tree.selected.front() : 0u;
+    RememberType(typeName);
+    switch (result.createMode) {
+    case EditorNodeGraphCreateMode::Wrap: {
+        const uint32_t id = target != 0u ? model.Wrap(registry, target, typeName, message) : 0u;
+        if (id != 0u) {
+            tree.Select({id});
+            Commit(tree, {"Wrapped the node."});
+        } else {
+            status_ = Plain(message);
+        }
+        return;
+    }
+    case EditorNodeGraphCreateMode::Replace: {
+        // 子が入り切らない時は一度断って知らせ、同じ置き換えをもう一度選んだら外して替える。
+        const bool confirmed = replaceNode_ == target && replaceType_ == typeName;
+        replaceNode_ = 0u;
+        if (target != 0u && model.Replace(registry, target, typeName, confirmed, message)) {
+            Commit(tree, {"Changed the node type."});
+        } else if (!message.empty()) {
+            replaceNode_ = target;
+            replaceType_ = typeName;
+            status_ = {"{0} Choose the same type again to disconnect them.", {message}};
+        }
+        return;
+    }
+    case EditorNodeGraphCreateMode::AddChild:
+    case EditorNodeGraphCreateMode::Place: break;
+    }
+    const uint32_t id = model.AddNode(registry, typeName, message);
+    if (id == 0u) {
+        status_ = Plain(message);
+        return;
+    }
+    if (result.createMode == EditorNodeGraphCreateMode::AddChild && target != 0u) {
+        model.Connect(registry, target, id, TreeModel::kLast, message);
+    } else if (const auto other = static_cast<uint32_t>(result.createFromPinId / 2u); other != 0u) {
+        // 引脚から線を引いて作った時は、その引脚と繋ぐ。そうでなければ右の列に出る。
+        const bool fromOutput = (result.createFromPinId % 2u) == 1u;
+        model.Connect(registry, fromOutput ? other : id, fromOutput ? id : other, TreeModel::kLast, message);
+    }
+    tree.Select({id});
+    Commit(tree, Plain(message));
+}
+
+void TreeWorkspace::DropType(OpenTree& tree, const std::string& typeName, const EditorNodeGraphResult& result) {
+    const NodeRegistry& registry = Registry();
+    TreeModel& model = tree.model;
+    std::string message{};
+    RememberType(typeName);
+    // 線の上：親と子の間に挟む（子を持てる種類だけ）。
+    if (const auto child = static_cast<uint32_t>(result.dropPayloadLinkId & 0xFFFFFFFFu);
+        result.dropPayloadLinkId != 0u && model.Find(child) != nullptr) {
+        if (const uint32_t id = model.Wrap(registry, child, typeName, message); id != 0u) {
+            tree.Select({id});
+            Commit(tree, {"Wrapped the node."});
+        } else {
+            status_ = Plain(message);
+        }
+        return;
+    }
+    const uint32_t id = model.AddNode(registry, typeName, message);
+    if (id == 0u) {
+        status_ = Plain(message);
+        return;
+    }
+    // 節の上：その最後の子に（子が一杯なら、どこにも繋がらない節にして知らせる）。
+    if (const auto parent = static_cast<uint32_t>(result.dropPayloadNodeId); parent != 0u) {
+        const DocumentNode* target = model.Find(parent);
+        if (target != nullptr && target->children.size() < MaximumChildren(registry.Find(target->type))) {
+            model.Connect(registry, parent, id, TreeModel::kLast, message);
+        } else {
+            message = "That node cannot take another child: the new node was left unconnected.";
+        }
+    }
+    tree.Select({id});
+    Commit(tree, Plain(message));
+}
+
+void TreeWorkspace::ApplyNodeAction(OpenTree& tree, NodeAction action) {
+    const NodeRegistry& registry = Registry();
+    TreeModel& model = tree.model;
+    const std::vector<uint32_t> selected = tree.selected;
+    if (selected.empty() || static_cast<int32_t>(action) < 0) {
+        return;
+    }
+    std::string message{};
+    const uint32_t first = selected.front();
+    switch (action) {
+    case NodeAction::SetRoot:
+        if (model.SetRoot(first, message)) {
+            Commit(tree, {"Changed the root."});
+        }
+        break;
+    case NodeAction::Disconnect: {
+        bool changed = false;
+        for (const uint32_t id : selected) {
+            changed = model.Disconnect(id) || changed;
+        }
+        if (changed) {
+            Commit(tree);
+        }
+        break;
+    }
+    case NodeAction::DeleteOnly:
+        if (model.RemoveNodes(registry, selected, true, message) != 0u) {
+            Commit(tree, {"Deleted the node; its children took its place."});
+        } else {
+            status_ = Plain(message);
+        }
+        break;
+    case NodeAction::ToggleEnabled: {
+        const DocumentNode* node = model.Find(first);
+        const bool enable = node != nullptr && node->disabled;
+        bool changed = false;
+        for (const uint32_t id : selected) {
+            changed = model.SetEnabled(id, enable, message) || changed;
+        }
+        if (changed) {
+            Commit(tree, enable ? Message{"Enabled the branch."}
+                                : Message{"Disabled the branch: it does not run until you enable it."});
+        } else {
+            status_ = Plain(message);
+        }
+        break;
+    }
+    case NodeAction::Extract: {
+        const DocumentNode* node = model.Find(first);
+        if (node == nullptr) {
+            break;
+        }
+        // 新しい樹は Behavior/ の下に、名前（無ければ種類）と番号で。
+        std::string base = node->name.empty() ? node->type : node->name;
+        std::erase_if(base, [](char value) { return value == '/' || value == '\\' || value == '.' || value == ':'; });
+        const std::string path = "Behavior/" + base + "_" + std::to_string(node->id);
+        if (const uint32_t id = editor_->ExtractSubtree(tree, first, path, message); id != 0u) {
+            tree.Select({id});
+            Commit(tree, {"Saved the branch as {0} and put a Subtree in its place.", {path}});
+        } else {
+            status_ = Plain(message);
+        }
+        break;
+    }
+    case NodeAction::Inline:
+        if (const uint32_t id = editor_->InlineSubtree(tree, first, message); id != 0u) {
+            tree.Select({id});
+            Commit(tree, {"Copied the subtree's nodes into this tree."});
+        } else {
+            status_ = Plain(message);
+        }
+        break;
     }
 }
 
@@ -442,19 +669,7 @@ void TreeWorkspace::ApplyGraphResult(IEditorWorkspaceUi& ui, OpenTree& tree, con
             status_ = Plain(message);
         }
     }
-    if (result.nodeActionIndex == kActionSetRoot && !selected.empty()) {
-        if (model.SetRoot(selected.front(), message)) {
-            Commit(tree, {"Changed the root."});
-        }
-    } else if (result.nodeActionIndex == kActionDisconnect) {
-        bool changed = false;
-        for (const uint32_t id : selected) {
-            changed = model.Disconnect(id) || changed;
-        }
-        if (changed) {
-            Commit(tree);
-        }
-    }
+    ApplyNodeAction(tree, static_cast<NodeAction>(result.nodeActionIndex));
     if ((result.copyRequested | result.cutRequested) != 0u && !selected.empty()) {
         ui.SetClipboardText(model.CopyNodes(selected));
     }
@@ -463,31 +678,36 @@ void TreeWorkspace::ApplyGraphResult(IEditorWorkspaceUi& ui, OpenTree& tree, con
         for (uint32_t index = 0u; index < result.selectedLinkCount; ++index) {
             changed = model.Disconnect(static_cast<uint32_t>(result.selectedLinkIds[index] & 0xFFFFFFFFu)) || changed;
         }
-        changed = model.RemoveNodes(selected, message) != 0u || changed;
+        // Delete は一支ごと（子だけ残すのは献立の「この節だけ消す」）。
+        changed = model.RemoveNodes(registry, selected, false, message) != 0u || changed;
         if (changed) {
             Commit(tree, Plain(message));
         } else if (!message.empty()) {
             status_ = Plain(message);
         }
     }
+    if (result.droppedPayload != nullptr && registry.Find(result.droppedPayload) != nullptr) {
+        DropType(tree, result.droppedPayload, result);
+    }
     if (result.createItemIndex >= 0 && static_cast<size_t>(result.createItemIndex) < typeNames_.size()) {
-        const uint32_t id = model.AddNode(registry, typeNames_[static_cast<size_t>(result.createItemIndex)], message);
-        if (id != 0u) {
-            // 引脚から線を引いて作った時は、その引脚と繋ぐ。そうでなければ右の列に出る。
-            if (const auto other = static_cast<uint32_t>(result.createFromPinId / 2u); other != 0u) {
-                const bool fromOutput = (result.createFromPinId % 2u) == 1u;
-                model.Connect(registry, fromOutput ? other : id, fromOutput ? id : other, TreeModel::kLast, message);
-            }
-            tree.Select({id});
-            Commit(tree, Plain(message));
-        }
+        CreateFromMenu(tree, typeNames_[static_cast<size_t>(result.createItemIndex)], result);
     }
     if ((result.pasteRequested | result.duplicateRequested) != 0u) {
-        const std::string text = result.duplicateRequested != 0u ? model.CopyNodes(selected) : ClipboardText(ui);
-        std::vector<uint32_t> pasted = model.PasteNodes(text);
+        // 貼り付けは選んでいる節の下へ、複製は元の節の隣（同じ親の下）へ。足りない黒板のキーは足して知らせる。
+        const bool duplicate = result.duplicateRequested != 0u;
+        const std::string text = duplicate ? model.CopyNodes(selected) : ClipboardText(ui);
+        const uint32_t parent = selected.size() != 1u ? 0u
+                                : duplicate           ? model.ParentOf(selected.front())
+                                                      : selected.front();
+        std::vector<std::string> added{};
+        std::vector<uint32_t> pasted = model.PasteNodes(text, registry, parent, added);
         if (!pasted.empty()) {
-            tree.Select(std::move(pasted));
-            Commit(tree);
+            std::string keys{};
+            for (const std::string& key : added) {
+                keys += (keys.empty() ? "" : ", ") + key;
+            }
+            tree.Select({pasted.front()});
+            Commit(tree, keys.empty() ? Message{} : Message{"Added blackboard keys: {0}", {keys}});
         }
     }
     // Subtree の節を二度押すと、埋め込んでいる樹を開く。

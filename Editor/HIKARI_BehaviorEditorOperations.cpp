@@ -146,8 +146,9 @@ private:
     // 樹を書き換える操作：edit が tree.model を書き換え、返す値に足す物を data に入れる。断る時は Refusal を投げる
     // （途中まで書き換えた分は捨てる）。通ったら一手として積み、今の問題を付けて返す。
     template <class Edit>
-    void Mutation(const char* id, const char* summary, std::initializer_list<Parameter> parameters, Edit edit) {
-        Add(id, summary, EditorOperationKind::Mutation, EditorOperationPermission::ModifyEditorState, parameters,
+    void Mutation(const char* id, const char* summary, std::initializer_list<Parameter> parameters, Edit edit,
+                  EditorOperationPermission permission = EditorOperationPermission::ModifyEditorState) {
+        Add(id, summary, EditorOperationKind::Mutation, permission, parameters,
             [this, edit = std::move(edit)](const Json& parameters) {
                 OpenTree& tree = TreeOf(parameters);
                 // 画面で入力の途中だった変更は、先に一手として積んでおく。
@@ -264,6 +265,18 @@ private:
                   }
                   return Json{{"types", std::move(types)}};
               });
+        Query("behaviortree.find",
+              "Find nodes whose name, type or used blackboard keys contain the text (case does not matter).",
+              {{"text", Type::String, true, "Text to look for."}, kTree}, [this](const Json& parameters) {
+                  OpenTree& tree = TreeOf(parameters);
+                  Json nodes = Json::array();
+                  for (const uint32_t id :
+                       FindNodes(tree.model, Registry(), parameters.at("text").get<std::string>())) {
+                      const DocumentNode& node = *tree.model.Find(id);
+                      nodes.push_back({{"node", id}, {"type", node.type}, {"name", node.name}});
+                  }
+                  return Json{{"nodes", std::move(nodes)}};
+              });
         Query("behaviortree.list", "List the behavior trees open in the editor.", {}, [this](const Json&) {
             Json open = Json::array();
             for (const auto& tree : editor_->Trees()) {
@@ -301,7 +314,8 @@ private:
             {{"path", Type::String, true, "Path under Assets, for example Behavior/Guard (the .hbtree is added)."}},
             [this](const Json& parameters) {
                 std::string message{};
-                OpenTree* tree = editor_->Create(parameters.at("path").get<std::string>(), message);
+                OpenTree* tree =
+                    editor_->Create(parameters.at("path").get<std::string>(), TreeModel::MakeNew(), message);
                 if (tree == nullptr) {
                     throw Refusal{"NOT_CREATED", "The tree could not be created: " + message};
                 }
@@ -339,17 +353,23 @@ private:
     void RegisterEdits() {
         Mutation(
             "behaviortree.add_node",
-            "Add a node. With parent, it becomes that node's child at index (default: last); children run in order.",
+            "Add a node. With parent, it becomes that node's child at index (default: last); children run in order. "
+            "With above, it is put between that node and its parent (a decorator or composite).",
             {{"type", Type::String, true, "Node type, from behaviortree.node_types."},
              {"parent", Type::Integer, false, "Id of the node that gets the new node as a child."},
+             {"above", Type::Integer, false, "Id of a node: the new node goes between it and its parent."},
              {"index", Type::Integer, false, "Position among the parent's children, from 0."},
              {"params", Type::Json, false, "Parameters as {\"name\": value}; a value can be {\"key\": \"name\"}."},
              kTree},
             [](OpenTree& tree, const Json& parameters, Json& data) {
                 std::string message{};
-                const uint32_t id = tree.model.AddNode(Registry(), parameters.at("type").get<std::string>(), message);
+                const std::string type = parameters.at("type").get<std::string>();
+                const uint32_t id =
+                    parameters.contains("above")
+                        ? tree.model.Wrap(Registry(), NodeOf(tree, parameters, "above").id, type, message)
+                        : tree.model.AddNode(Registry(), type, message);
                 Require(id != 0u, std::move(message));
-                if (parameters.contains("parent")) {
+                if (parameters.contains("parent") && !parameters.contains("above")) {
                     Attach(tree, parameters["parent"].get<uint32_t>(), id, parameters);
                 }
                 if (const auto params = parameters.find("params"); params != parameters.end() && params->is_object()) {
@@ -361,12 +381,17 @@ private:
                 data["node"] = id;
             });
         Mutation("behaviortree.remove_nodes",
-                 "Remove nodes. Their children stay in the tree, disconnected. The root cannot be removed.",
-                 {{"nodes", Type::Json, true, "List of node ids."}, kTree},
+                 "Remove nodes with everything below them. With keepChildren, only the nodes go and their children "
+                 "take their place (children that do not fit stay in the tree, disconnected). The root cannot be "
+                 "removed.",
+                 {{"nodes", Type::Json, true, "List of node ids."},
+                  {"keepChildren", Type::Boolean, false, "Keep the children (default false: remove the branch)."},
+                  kTree},
                  [](OpenTree& tree, const Json& parameters, Json& data) {
                      const std::vector<uint32_t> ids = parameters.at("nodes").get<std::vector<uint32_t>>();
                      std::string message{};
-                     data["removed"] = tree.model.RemoveNodes(ids, message);
+                     data["removed"] =
+                         tree.model.RemoveNodes(Registry(), ids, parameters.value("keepChildren", false), message);
                      if (!message.empty()) {
                          data["note"] = message;
                      }
@@ -405,6 +430,73 @@ private:
                      const uint32_t id = NodeOf(tree, parameters, "node").id;
                      const bool isRoot = tree.model.SetRoot(id, message) || tree.model.Document().root == id;
                      Require(isRoot, std::move(message));
+                 });
+        Mutation("behaviortree.wrap", "Put a decorator or composite between a node and its parent.",
+                 {{"node", Type::Integer, true, "Id of the node to wrap."},
+                  {"type", Type::String, true, "Decorator or composite type."},
+                  kTree},
+                 [](OpenTree& tree, const Json& parameters, Json& data) {
+                     std::string message{};
+                     const uint32_t id = tree.model.Wrap(Registry(), NodeOf(tree, parameters, "node").id,
+                                                         parameters.at("type").get<std::string>(), message);
+                     Require(id != 0u, std::move(message));
+                     tree.Select({id});
+                     data["node"] = id;
+                 });
+        Mutation("behaviortree.replace",
+                 "Change a node's type. Children, name and note stay; parameters with the same name and a fitting "
+                 "type stay. Refused when the new type cannot hold all children, unless dropExtraChildren.",
+                 {{"node", Type::Integer, true, "Id of the node."},
+                  {"type", Type::String, true, "New node type."},
+                  {"dropExtraChildren", Type::Boolean, false, "Disconnect the children that do not fit."},
+                  kTree},
+                 [](OpenTree& tree, const Json& parameters, Json&) {
+                     std::string message{};
+                     const DocumentNode& node = NodeOf(tree, parameters, "node");
+                     const std::string type = parameters.at("type").get<std::string>();
+                     Require(tree.model.Replace(Registry(), node.id, type, parameters.value("dropExtraChildren", false),
+                                                message) ||
+                                 node.type == type,
+                             std::move(message));
+                 });
+        Mutation("behaviortree.set_enabled",
+                 "Disable a node to run the tree as if it and everything below it were not there (greyed out in "
+                 "the graph), or enable it again. A parent left with no enabled child fails.",
+                 {{"node", Type::Integer, true, "Id of the node."},
+                  {"enabled", Type::Boolean, true, "false to disable."},
+                  kTree},
+                 [](OpenTree& tree, const Json& parameters, Json&) {
+                     std::string message{};
+                     const DocumentNode& node = NodeOf(tree, parameters, "node");
+                     const bool enabled = parameters.at("enabled").get<bool>();
+                     Require(tree.model.SetEnabled(node.id, enabled, message) || node.disabled == !enabled,
+                             std::move(message));
+                 });
+        Mutation(
+            "behaviortree.extract_subtree",
+            "Save a node and everything below it as a new tree asset (with the blackboard keys it uses) and put a "
+            "Subtree node in its place.",
+            {{"node", Type::Integer, true, "Id of the top node of the branch."},
+             {"path", Type::String, true, "Path under Assets for the new tree, for example Behavior/Chase."},
+             kTree},
+            [this](OpenTree& tree, const Json& parameters, Json& data) {
+                std::string message{};
+                const uint32_t id = editor_->ExtractSubtree(tree, NodeOf(tree, parameters, "node").id,
+                                                            parameters.at("path").get<std::string>(), message);
+                Require(id != 0u, std::move(message));
+                tree.Select({id});
+                data["node"] = id;
+            },
+            EditorOperationPermission::ModifyProjectFiles);
+        Mutation("behaviortree.inline_subtree",
+                 "Replace a Subtree node with a copy of the tree it embeds (missing blackboard keys are added).",
+                 {{"node", Type::Integer, true, "Id of the Subtree node."}, kTree},
+                 [this](OpenTree& tree, const Json& parameters, Json& data) {
+                     std::string message{};
+                     const uint32_t id = editor_->InlineSubtree(tree, NodeOf(tree, parameters, "node").id, message);
+                     Require(id != 0u, std::move(message));
+                     tree.Select({id});
+                     data["node"] = id;
                  });
         Mutation("behaviortree.set_name",
                  "Give a node a name (shown instead of its type name) and a note. Empty text removes it. "
