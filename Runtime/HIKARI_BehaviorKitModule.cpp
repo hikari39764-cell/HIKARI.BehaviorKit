@@ -18,6 +18,16 @@ namespace {
 
 constexpr std::string_view kTreeComponentType = "HIKARI.BehaviorKit.BehaviorTree";
 
+// 樹をいつ進めるか。
+enum class UpdateMode : uint8_t {
+    // Play の間、引擎が毎フレーム（Update Interval ごとに）進める。
+    EveryFrame,
+    // ゲームのコードが BehaviorApi::tickObject で進める（自分の更新の順の中で考えさせたい時）。
+    GameCode,
+};
+constexpr GameProjectEnumName<UpdateMode> kUpdateModes[] = {{UpdateMode::EveryFrame, "EveryFrame"},
+                                                            {UpdateMode::GameCode, "GameCode"}};
+
 std::string_view Trim(std::string_view text) noexcept {
     constexpr std::string_view kSpace = " \t\r\n";
     const size_t first = text.find_first_not_of(kSpace);
@@ -83,7 +93,8 @@ void ApplyInitialValues(TreeInstance& instance, std::string_view text, std::stri
 }
 
 // 物体に行動樹を持たせる部品。樹は項目の資産（.hbtree）で、同じ樹を使う部品は編訳済みの樹を共有する。
-// Play の間だけ、引擎が呼ぶ毎フレームの更新で樹を進める。資産を保存し直すと、走っている途中でも新しい樹に替わる。
+// Play の間だけ進める：引擎が呼ぶ毎フレームの更新で（Every Frame）、またはゲームのコードが決めた時に（Game Code）。
+// 資産を保存し直すと、走っている途中でも新しい樹に替わる。
 class BehaviorTreeComponent final : public IGameComponent, public ITreeUser {
 public:
     void OnAttach(GameComponentContext& context) override {
@@ -100,6 +111,7 @@ public:
     void DescribeProperties(PropertyFields& fields) override {
         bool changed = fields.ModuleAsset("tree", "Tree", kTreeAssetType, tree_);
         fields.Bool("enabled", "Enabled", enabled_);
+        fields.Choice("update", "Update", update_, kUpdateModes);
         fields.Float("interval", "Update Interval", interval_, 0.0f, 10.0f, 0.01f);
         changed = fields.Text("values", "Initial Values", values_) || changed;
         if (changed) {
@@ -119,7 +131,7 @@ public:
             ResetTree();
             return;
         }
-        if (!SyncTree()) {
+        if (update_ == UpdateMode::GameCode || !SyncTree()) {
             return;
         }
         elapsed_ += deltaTime;
@@ -143,6 +155,20 @@ public:
             instance_.Bind(nullptr);
         }
         elapsed_ = 0.0f;
+    }
+
+    // ゲームのコードから呼ばれる。持ち主の変数へ書く手段（WriteVariable の節）は引擎の更新の中でしか借りられないので、
+    // こちらの進め方では使えない（ゲームの節は自分の状態を直接書く）。
+    TickOutcome TickByGame(float deltaSeconds, Status& outStatus) override {
+        if (update_ != UpdateMode::GameCode) {
+            return TickOutcome::NoTree;
+        }
+        if (!world_.IsValid() || !world_.GetRuntimeSession().IsPlayActive() || !enabled_ || tree_.empty() ||
+            !SyncTree()) {
+            return TickOutcome::NotReady;
+        }
+        outStatus = instance_.Tick(TickHost{world_, object_, deltaSeconds});
+        return TickOutcome::Ticked;
     }
 
     GameProjectObjectHandle OwnerHandle() const noexcept override { return object_.GetHandle(); }
@@ -177,6 +203,7 @@ private:
     std::string values_{};
     float interval_ = 0.0f;
     bool enabled_ = true;
+    UpdateMode update_ = UpdateMode::EveryFrame;
 
     WorldView world_{};
     ObjectView object_{};
@@ -224,6 +251,19 @@ void UnregisterNodeTypesEntry(const void* owner) noexcept {
     }
 }
 
+TickOutcome TickObjectEntry(GameProjectObjectHandle object, float deltaSeconds, Status* outStatus) noexcept {
+    try {
+        Status status = Status::Failure;
+        const TickOutcome outcome = BehaviorLibrary::Get().TickObject(object, deltaSeconds, status);
+        if (outcome == TickOutcome::Ticked && outStatus != nullptr) {
+            *outStatus = status;
+        }
+        return outcome;
+    } catch (...) {
+        return TickOutcome::NotReady;
+    }
+}
+
 uint32_t CopyLastErrorEntry(char* buffer, uint32_t capacity) noexcept {
     const std::string& error = BehaviorLibrary::Get().LastError();
     if (buffer == nullptr || capacity == 0u) {
@@ -248,7 +288,7 @@ std::unique_ptr<IGameProjectModule> CreateGameProjectModule() {
 extern "C" __declspec(dllexport) const HIKARI::BEHAVIOR::BehaviorApi* HIKARI_BehaviorKit_GetApi(
     uint32_t version) noexcept {
     using namespace HIKARI::BEHAVIOR;
-    static const BehaviorApi api{sizeof(BehaviorApi), kBehaviorApiVersion, &RegisterNodeTypeEntry,
-                                 &UnregisterNodeTypesEntry, &CopyLastErrorEntry};
+    static const BehaviorApi api{sizeof(BehaviorApi),       kBehaviorApiVersion, &RegisterNodeTypeEntry,
+                                 &UnregisterNodeTypesEntry, &CopyLastErrorEntry, &TickObjectEntry};
     return version == kBehaviorApiVersion ? &api : nullptr;
 }

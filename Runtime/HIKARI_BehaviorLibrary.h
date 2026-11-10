@@ -17,10 +17,12 @@ namespace HIKARI::BEHAVIOR {
 inline constexpr std::string_view kTreeAssetType = "HIKARI.BehaviorKit.Tree";
 
 // 樹を走らせている側（行動樹の部品）。節の種類が外される前に、走っている樹を止めてもらう。
+// TickByGame は、いつ進めるかをゲームのコードが決める部品を一回進める（BehaviorApi::tickObject の中身）。
 // 後ろの四つは編集器の表示用：どの物体が、どの樹を、今どこまで進めているか。
 class ITreeUser {
 public:
     virtual void ResetTree() = 0;
+    virtual TickOutcome TickByGame(float deltaSeconds, Status& outStatus) = 0;
     virtual GameProjectObjectHandle OwnerHandle() const noexcept = 0;
     virtual std::string_view OwnerName() const noexcept = 0;
     virtual const std::string& TreeGuid() const noexcept = 0;
@@ -51,6 +53,7 @@ public:
     // 公開の窓口（BehaviorApi）の中身。
     bool RegisterNodeType(const NodeTypeDesc& desc, const void* owner);
     void UnregisterNodeTypes(const void* owner);
+    TickOutcome TickObject(GameProjectObjectHandle object, float deltaSeconds, Status& outStatus);
 
     const std::string& LastError() const noexcept { return lastError_; }
     void ReportError(std::string message);

@@ -31,6 +31,8 @@ HIKARI 引擎的行为树模块：角色按一棵“行为树”决定现在做�
 给角色加组件 **Behavior Tree**：
 
 - **Tree**：选一个行为树资产（`.hbtree`）。
+- **Update**：谁来推进这棵树。`EveryFrame` 是引擎每帧推进（下面的间隔生效）；`GameCode` 是游戏代码在自己的更新里
+  决定什么时候让它想一次（见后面的“由游戏代码推进”）。
 - **Update Interval**：隔多少秒推进一次，0 是每帧。
 - **Initial Values**：这个角色自己的初始变量，例如 `pointA = -8, 1, 4; pointB = -2, 1, 4; alert = false`。
 - **Enabled**：关掉就停下。
@@ -168,7 +170,28 @@ void RegisterMyNodes() {    // 在模块都加载之后调用，例如系统的 
 - 登记失败（名字重复、行为树模块没装）时 `Register` 返回 false，原因用 `FindBehaviorApi()->copyLastError` 取。
 - 取消登记时所有正在跑的树会回到开头。
 - 节点要在编辑器打开项目时就登记好（上面的 `OnWorldAttached` 满足），这样编辑树的时候才看得到、才不会被当成不认识的节点。
-- 这个头文件的接口版本是 2（参数表多了“固定选项”）。换了新的插件包之后，用到它的游戏代码要重新编一次；引擎的项目构建会自己发现插件包变了。
+- 这个头文件的接口版本是 3（2：参数表多了“固定选项”；3：多了由游戏代码推进树的 `tickObject`）。换了新的插件包之后，
+  用到它的游戏代码要重新编一次；引擎的项目构建会自己发现插件包变了。
+
+## 由游戏代码推进
+
+有自己的战斗循环的游戏，往往要在循环里的固定位置让敌人“想一次”（比如只在待机状态想，出招途中不想），
+并且想的结果要在同一帧里马上生效。这时把组件的 **Update** 设成 `GameCode`，游戏代码这样调用：
+
+```cpp
+const BehaviorApi* behavior = FindBehaviorApi();          // 项目没装行为树插件时是 nullptr
+Status status{};
+switch (behavior->tickObject(enemy.GetHandle(), deltaSeconds, &status)) {
+case TickOutcome::NoTree:   /* 这个物体没有由游戏推进的树：走原来的代码 */ break;
+case TickOutcome::NotReady: /* 有树但现在跑不了（树有错、组件被关掉）：这一帧什么都不做，原因在引擎日志 */ break;
+case TickOutcome::Ticked:   /* 树想过了，节点已经在这次调用里执行完 */ break;
+}
+```
+
+- 节点函数就在 `tickObject` 这次调用里执行，所以节点可以直接改游戏自己的状态；“要做什么、先后顺序、阈值”留在树里，
+  “什么时候想”留在代码里。
+- 编辑器的 Play 高亮、`behaviortree.run_state` 对这种树同样有效。
+- 这种推进方式下 `WriteVariable` 节点不可用（它要借用引擎更新时的写入口），游戏的节点自己写状态即可。
 
 ## 测试
 

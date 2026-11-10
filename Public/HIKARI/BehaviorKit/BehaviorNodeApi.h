@@ -27,7 +27,7 @@ __declspec(dllimport) long long(__stdcall* __stdcall GetProcAddress(HINSTANCE__*
 
 namespace HIKARI::BEHAVIOR {
 
-inline constexpr uint32_t kBehaviorApiVersion = 2u;
+inline constexpr uint32_t kBehaviorApiVersion = 3u;
 inline constexpr wchar_t kBehaviorLibraryName[] = L"HIKARI_BehaviorKit.dll";
 inline constexpr char kBehaviorApiEntryPoint[] = "HIKARI_BehaviorKit_GetApi";
 
@@ -47,6 +47,16 @@ enum class ValueType : uint8_t {
     Object,
     Text,
     Any,
+};
+
+// tickObject の結果。
+enum class TickOutcome : uint8_t {
+    // この物体に、ゲームのコードが進める行動樹（部品の Update が Game Code）は無い。
+    NoTree,
+    // 部品はあるが今は進められない：樹が読めない・編訳できない（理由は引擎のログ）、部品を止めてある、Play 中でない。
+    NotReady,
+    // 一回進めた。
+    Ticked,
 };
 
 // 節の種類。Condition は一回の呼び出しで Success か Failure を返す（Running を返さない、状態を持たない）。
@@ -136,6 +146,11 @@ struct BehaviorApi {
     // 最後に起きた誤り（樹が読めない・編訳できない、登記の失敗）を UTF-8 で写し、書いた字数を返す。
     // 道具と検査用。誤りが無ければ 0。
     uint32_t (*copyLastError)(char* buffer, uint32_t capacity) noexcept = nullptr;
+    // いつ考えるかをゲームのコードが決める時に使う：物体の Behavior Tree 部品（Update が Game Code）の樹を、
+    // 呼んだその場で一回進める。節の関数はこの呼び出しの中で走る。deltaSeconds は前に進めてからの時間。
+    // Ticked の時だけ outStatus に根の結果が入る（outStatus は nullptr でもよい）。
+    // 樹を進める thread（World の持ち主）から呼ぶ。節の関数の中からは呼ばない。
+    TickOutcome (*tickObject)(GameProjectObjectHandle object, float deltaSeconds, Status* outStatus) noexcept = nullptr;
 };
 
 using GetBehaviorApiFn = const BehaviorApi* (*)(uint32_t version) noexcept;

@@ -120,6 +120,16 @@ void BehaviorLibrary::UnregisterNodeTypes(const void* owner) {
     registry_.Unregister(owner);
 }
 
+TickOutcome BehaviorLibrary::TickObject(GameProjectObjectHandle object, float deltaSeconds, Status& outStatus) {
+    // 樹を持つ物体は多くても数十（主や隊長）。一覧をそのまま探す。
+    for (ITreeUser* user : users_) {
+        if (user->OwnerHandle() == object) {
+            return user->TickByGame(deltaSeconds, outStatus);
+        }
+    }
+    return TickOutcome::NoTree;
+}
+
 void BehaviorLibrary::ReportError(std::string message) {
     lastError_ = std::move(message);
     WriteProjectLog(GameProjectLogLevel::Error, "BehaviorKit", lastError_);
