@@ -237,9 +237,10 @@ void TreeWorkspace::DrawGraph(IEditorWorkspaceUi& ui, OpenTree& tree, const RunV
     ui.SameLine();
     DrawShortcuts(ui);
     ui.SameLine();
-    DrawFind(ui, tree);
-    ui.SameLine();
+    // 状態の字は検索欄（行の残りの幅を取る）より前に置き、行の端で折り返さないようにする。
     ui.Text(StatusLine(ui, tree, run));
+    ui.SameLine();
+    DrawFind(ui, tree);
 
     const TreeDocument& document = model.Document();
     const TreeLayout layout = LayoutTree(document, tree.sizes);

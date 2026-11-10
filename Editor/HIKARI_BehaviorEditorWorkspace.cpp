@@ -312,6 +312,11 @@ void TreeWorkspace::DrawDetails(IEditorWorkspaceUi& ui, OpenTree* tree, const Ru
             if (node != nullptr) {
                 const NodeType* type = Registry().Find(node->type);
                 ui.Text(type != nullptr ? type->displayName : FormatText(ui, "{0} (unknown node type)", {node->type}));
+                if (type != nullptr && !type->description.empty()) {
+                    // 種類の説明は全文を折り返して。
+                    ui.Text(type->description);
+                }
+                ui.Separator();
                 DrawLabelFields(ui, *tree, *node);
                 tree->pendingCommit = DrawNodeParams(ui, *tree, node->id) || tree->pendingCommit;
             } else {
