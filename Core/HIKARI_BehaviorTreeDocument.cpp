@@ -132,11 +132,12 @@ bool ReadNode(const Json& json, DocumentNode& out, std::string& error) {
         error = where + ": the id must be positive and the type must not be empty";
         return false;
     }
-    if (const auto x = json.find("x"); x != json.end() && x->is_number()) {
-        out.x = x->get<float>();
-    }
-    if (const auto y = json.find("y"); y != json.end() && y->is_number()) {
-        out.y = y->get<float>();
+    if (const auto collapsed = json.find("collapsed"); collapsed != json.end()) {
+        if (!collapsed->is_boolean()) {
+            error = where + ": \"collapsed\" must be true or false";
+            return false;
+        }
+        out.collapsed = collapsed->get<bool>();
     }
     if (const auto children = json.find("children"); children != json.end()) {
         if (!children->is_array()) {
@@ -264,8 +265,9 @@ std::string SerializeTreeDocument(const TreeDocument& document) {
         OrderedJson entry = OrderedJson::object();
         entry["id"] = node.id;
         entry["type"] = node.type;
-        entry["x"] = ShortestDouble(node.x);
-        entry["y"] = ShortestDouble(node.y);
+        if (node.collapsed) {
+            entry["collapsed"] = true;
+        }
         if (!node.params.empty()) {
             OrderedJson params = OrderedJson::object();
             for (const DocumentParam& param : node.params) {

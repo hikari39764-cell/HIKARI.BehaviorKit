@@ -10,23 +10,24 @@
 // 行動樹の資産（.hbtree、JSON）。編集器が書く形のまま読んだもの。実行には CompileTree で詰め直す。
 //
 //   {
-//     "formatVersion": 2,
+//     "formatVersion": 3,
 //     "blackboard": [ {"name": "target", "type": "object"}, {"name": "home", "type": "vec3", "value": [0, 0, 0]} ],
 //     "root": 1,
 //     "nodes": [
-//       {"id": 1, "type": "Selector", "x": 0, "y": 0, "params": {"reactive": true}, "children": [2, 4]},
-//       {"id": 2, "type": "MoveToObject", "x": -120, "y": 110, "params": {"target": {"key": "target"}, "speed": 4.0}},
-//       {"id": 4, "type": "Wait", "x": 120, "y": 110, "params": {"seconds": 1.5}}
+//       {"id": 1, "type": "Selector", "params": {"reactive": true}, "children": [2, 4]},
+//       {"id": 2, "type": "MoveToObject", "params": {"target": {"key": "target"}, "speed": 4.0}},
+//       {"id": 4, "type": "Wait", "collapsed": true, "params": {"seconds": 1.5}}
 //     ]
 //   }
 //
 // 参数の値：true / false、整数、小数、[x, y, z]、"文字"、{"key": "黒板のキー"}。
 // Subtree の "tree" は、埋め込む樹の資産の GUID。
 // 黒板の型："bool"、"int"、"float"、"vec3"、"object"（object は初期値を持てない）。
-// x と y は編集器の画布での位置で、実行には使わない。根から辿れない節があってもよい（編集の途中の形）。
+// 画布での位置は持たない（編集器が樹の形から毎回並べる）。"collapsed" は編集器で子を畳んでいる印で、実行には使わない。
+// 根から辿れない節があってもよい（編集の途中の形。編集器は右の列に並べる）。
 namespace HIKARI::BEHAVIOR {
 
-inline constexpr uint32_t kTreeFormatVersion = 2u;
+inline constexpr uint32_t kTreeFormatVersion = 3u;
 
 struct DocumentKey {
     std::string name{};
@@ -48,8 +49,8 @@ struct DocumentParam {
 struct DocumentNode {
     uint32_t id = 0u;
     std::string type{};
-    float x = 0.0f;
-    float y = 0.0f;
+    // 編集器で子を畳んでいる。
+    bool collapsed = false;
     std::vector<uint32_t> children{};
     std::vector<DocumentParam> params{};
 };

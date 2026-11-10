@@ -2,7 +2,6 @@
 #include <exception>
 #include <functional>
 #include <initializer_list>
-#include <limits>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -232,13 +231,11 @@ private:
                                              ") takes one child and already has node " +
                                              std::to_string(parentNode->children.front()) + ". Disconnect it first."};
         }
-        tree.model.PlaceUnder(parent, child, parameters.value("index", (std::numeric_limits<size_t>::max)()));
         std::string message{};
-        if (!tree.model.Connect(Registry(), parent, child, message) && !message.empty()) {
+        if (!tree.model.Connect(Registry(), parent, child, parameters.value("index", TreeModel::kLast), message) &&
+            !message.empty()) {
             throw Refusal{"REFUSED", std::move(message)};
         }
-        // 繋ぎ直さなかった時（もうこの親の子）も、位置を変えたので並びを合わせる。
-        tree.model.SortChildren();
     }
 
     static void WriteParam(OpenTree& tree, uint32_t node, const std::string& name, const Json& value) {
@@ -350,8 +347,7 @@ private:
              kTree},
             [](OpenTree& tree, const Json& parameters, Json& data) {
                 std::string message{};
-                const uint32_t id =
-                    tree.model.AddNodeAside(Registry(), parameters.at("type").get<std::string>(), message);
+                const uint32_t id = tree.model.AddNode(Registry(), parameters.at("type").get<std::string>(), message);
                 Require(id != 0u, std::move(message));
                 if (parameters.contains("parent")) {
                     Attach(tree, parameters["parent"].get<uint32_t>(), id, parameters);
@@ -410,10 +406,16 @@ private:
                      const bool isRoot = tree.model.SetRoot(id, message) || tree.model.Document().root == id;
                      Require(isRoot, std::move(message));
                  });
-        Mutation("behaviortree.arrange", "Lay the tree out again from its root so that it is easy to read.", {kTree},
-                 [](OpenTree& tree, const Json&, Json&) {
-                     tree.model.Arrange(tree.widths);
-                     tree.frameAll = true;
+        Mutation("behaviortree.collapse",
+                 "Fold a node's children away in the editor's graph, or unfold them. Running is not affected.",
+                 {{"node", Type::Integer, true, "Id of a node that has children."},
+                  {"collapsed", Type::Boolean, false, "false to unfold (default true)."},
+                  kTree},
+                 [](OpenTree& tree, const Json& parameters, Json&) {
+                     const DocumentNode& node = NodeOf(tree, parameters, "node");
+                     const bool collapsed = parameters.value("collapsed", true);
+                     Require(tree.model.SetCollapsed(node.id, collapsed) || node.collapsed == collapsed,
+                             "Only a node with children can be folded.");
                  });
     }
 

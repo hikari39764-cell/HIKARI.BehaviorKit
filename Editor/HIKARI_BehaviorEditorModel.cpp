@@ -10,11 +10,6 @@
 namespace HIKARI::BEHAVIOR::EDITING {
 namespace {
 
-constexpr float kDefaultNodeWidth = 140.0f;
-constexpr float kArrangeGapX = 24.0f;
-constexpr float kArrangeRowHeight = 110.0f;
-constexpr float kAsideGapX = 200.0f;
-
 // 編訳の誤りが節についての物（「node {0} …」）なら、その節の id（無ければ 0）。
 uint32_t LeadingNodeId(const Message& message) noexcept {
     uint32_t id = 0u;
@@ -79,8 +74,7 @@ bool TreeModel::IsAncestor(uint32_t ancestor, uint32_t node) const noexcept {
     return false;
 }
 
-uint32_t TreeModel::AddNode(const NodeRegistry& registry, std::string_view type, float x, float y,
-                            std::string& message) {
+uint32_t TreeModel::AddNode(const NodeRegistry& registry, std::string_view type, std::string& message) {
     if (registry.Find(type) == nullptr) {
         message = "Unknown node type: " + std::string(type);
         return 0u;
@@ -88,20 +82,8 @@ uint32_t TreeModel::AddNode(const NodeRegistry& registry, std::string_view type,
     DocumentNode node{};
     node.id = NextId();
     node.type = std::string(type);
-    node.x = x;
-    node.y = y;
     document_.nodes.push_back(std::move(node));
     return document_.nodes.back().id;
-}
-
-uint32_t TreeModel::AddNodeAside(const NodeRegistry& registry, std::string_view type, std::string& message) {
-    float right = 0.0f;
-    float top = 0.0f;
-    for (const DocumentNode& node : document_.nodes) {
-        right = (std::max)(right, node.x);
-        top = node.id == document_.root ? node.y : top;
-    }
-    return AddNode(registry, type, right + kAsideGapX, top, message);
 }
 
 size_t TreeModel::RemoveNodes(std::span<const uint32_t> ids, std::string& message) {
@@ -119,35 +101,58 @@ size_t TreeModel::RemoveNodes(std::span<const uint32_t> ids, std::string& messag
     return before - document_.nodes.size();
 }
 
-bool TreeModel::Connect(const NodeRegistry& registry, uint32_t parent, uint32_t child, std::string& message) {
-    DocumentNode* parentNode = FindMutable(parent);
+AttachProblem TreeModel::CheckAttach(const NodeRegistry& registry, uint32_t parent, uint32_t child) const noexcept {
+    const DocumentNode* parentNode = Find(parent);
     if (parentNode == nullptr || Find(child) == nullptr || parent == child) {
-        message = "Both nodes must exist and be different.";
-        return false;
+        return AttachProblem::Missing;
     }
-    const size_t capacity = MaximumChildren(registry.Find(parentNode->type));
-    if (capacity == 0u) {
-        message = parentNode->type + " cannot have children.";
-        return false;
+    if (MaximumChildren(registry.Find(parentNode->type)) == 0u) {
+        return AttachProblem::NoChildren;
     }
     if (child == document_.root) {
-        message = "The root cannot be the child of another node.";
-        return false;
+        return AttachProblem::Root;
     }
-    if (IsAncestor(child, parent)) {
-        message = "That link would make a loop.";
-        return false;
+    return IsAncestor(child, parent) ? AttachProblem::Loop : AttachProblem::None;
+}
+
+bool TreeModel::Connect(const NodeRegistry& registry, uint32_t parent, uint32_t child, size_t index,
+                        std::string& message) {
+    switch (CheckAttach(registry, parent, child)) {
+    case AttachProblem::None: break;
+    case AttachProblem::Missing: message = "Both nodes must exist and be different."; return false;
+    case AttachProblem::NoChildren: message = Find(parent)->type + " cannot have children."; return false;
+    case AttachProblem::Root: message = "The root cannot be the child of another node."; return false;
+    case AttachProblem::Loop: message = "That would put a node under its own child."; return false;
     }
-    if (ParentOf(child) == parent) {
-        return false;
+    const DocumentNode* parentNode = Find(parent);
+    const auto old = std::find(parentNode->children.begin(), parentNode->children.end(), child);
+    if (old != parentNode->children.end()) {
+        // 同じ親の中の並べ替え。自分の前後へ置くのは何も変わらない。
+        const auto oldIndex = static_cast<size_t>(old - parentNode->children.begin());
+        index = (std::min)(index, parentNode->children.size());
+        if (index == oldIndex || index == oldIndex + 1u) {
+            return false;
+        }
+        if (index > oldIndex) {
+            --index;
+        }
     }
     Disconnect(child);
-    parentNode = FindMutable(parent);
-    if (capacity == 1u) {
-        parentNode->children.clear();
+    DocumentNode* target = FindMutable(parent);
+    if (MaximumChildren(registry.Find(target->type)) == 1u) {
+        target->children.clear();
     }
-    parentNode->children.push_back(child);
-    SortChildren();
+    index = (std::min)(index, target->children.size());
+    target->children.insert(target->children.begin() + static_cast<std::ptrdiff_t>(index), child);
+    return true;
+}
+
+bool TreeModel::SetCollapsed(uint32_t id, bool collapsed) {
+    DocumentNode* node = FindMutable(id);
+    if (node == nullptr || (collapsed && node->children.empty()) || node->collapsed == collapsed) {
+        return false;
+    }
+    node->collapsed = collapsed;
     return true;
 }
 
@@ -157,38 +162,6 @@ bool TreeModel::Disconnect(uint32_t child) {
         changed = std::erase(node.children, child) != 0u || changed;
     }
     return changed;
-}
-
-bool TreeModel::MoveNode(uint32_t id, float x, float y) {
-    DocumentNode* node = FindMutable(id);
-    if (node == nullptr || (node->x == x && node->y == y)) {
-        return false;
-    }
-    node->x = x;
-    node->y = y;
-    return true;
-}
-
-void TreeModel::PlaceUnder(uint32_t parent, uint32_t child, size_t index) {
-    const DocumentNode* parentNode = Find(parent);
-    DocumentNode* childNode = FindMutable(child);
-    if (parentNode == nullptr || childNode == nullptr) {
-        return;
-    }
-    std::vector<float> siblings{};
-    for (const uint32_t id : parentNode->children) {
-        if (const DocumentNode* sibling = Find(id); sibling != nullptr && id != child) {
-            siblings.push_back(sibling->x);
-        }
-    }
-    std::sort(siblings.begin(), siblings.end());
-    index = (std::min)(index, siblings.size());
-    const float step = kDefaultNodeWidth + kArrangeGapX;
-    childNode->x = siblings.empty()           ? parentNode->x
-                   : index == 0u              ? siblings.front() - step
-                   : index == siblings.size() ? siblings.back() + step
-                                              : (siblings[index - 1u] + siblings[index]) * 0.5f;
-    childNode->y = parentNode->y + kArrangeRowHeight;
 }
 
 bool TreeModel::SetRoot(uint32_t id, std::string& message) {
@@ -252,77 +225,6 @@ bool TreeModel::RemoveKey(std::string_view name) {
     return std::erase_if(document_.blackboard, [&](const DocumentKey& key) { return key.name == name; }) != 0u;
 }
 
-void TreeModel::SortChildren() {
-    for (DocumentNode& node : document_.nodes) {
-        std::stable_sort(node.children.begin(), node.children.end(), [&](uint32_t left, uint32_t right) {
-            const DocumentNode* a = Find(left);
-            const DocumentNode* b = Find(right);
-            return a != nullptr && b != nullptr && a->x < b->x;
-        });
-    }
-}
-
-void TreeModel::Arrange(std::span<const std::pair<uint32_t, float>> widths) {
-    const DocumentNode* root = Find(document_.root);
-    if (root == nullptr) {
-        return;
-    }
-    const auto widthOf = [&](uint32_t id) {
-        const auto found =
-            std::find_if(widths.begin(), widths.end(), [id](const auto& entry) { return entry.first == id; });
-        return found != widths.end() ? found->second : kDefaultNodeWidth;
-    };
-    // 節の下に広がる子孫の幅。輪があっても止まるよう、通った節は二度数えない。
-    std::unordered_map<uint32_t, float> spans{};
-    std::unordered_set<uint32_t> visiting{};
-    const auto measure = [&](auto&& self, uint32_t id) -> float {
-        const DocumentNode* node = Find(id);
-        if (node == nullptr || !visiting.insert(id).second) {
-            return 0.0f;
-        }
-        float children = 0.0f;
-        for (const uint32_t child : node->children) {
-            children += self(self, child);
-        }
-        const float span = (std::max)(widthOf(id) + kArrangeGapX, children);
-        spans[id] = span;
-        return span;
-    };
-    measure(measure, document_.root);
-    const float originX = root->x + widthOf(root->id) * 0.5f;
-    const float originY = root->y;
-    const auto place = [&](auto&& self, uint32_t id, float left, int depth) -> void {
-        DocumentNode* node = FindMutable(id);
-        const auto span = spans.find(id);
-        if (node == nullptr || span == spans.end()) {
-            return;
-        }
-        const float width = widthOf(id);
-        node->x = left + (span->second - width) * 0.5f;
-        node->y = originY + static_cast<float>(depth) * kArrangeRowHeight;
-        const float own = span->second;
-        spans.erase(span);
-        // 子の幅の合計が自分より狭い時は、子を真ん中へ寄せる。
-        float childrenSpan = 0.0f;
-        for (const uint32_t child : node->children) {
-            const auto found = spans.find(child);
-            childrenSpan += found != spans.end() ? found->second : 0.0f;
-        }
-        float cursor = left + (own - childrenSpan) * 0.5f;
-        const std::vector<uint32_t> children = node->children;
-        for (const uint32_t child : children) {
-            const auto found = spans.find(child);
-            if (found == spans.end()) {
-                continue;
-            }
-            const float childSpan = found->second;
-            self(self, child, cursor, depth + 1);
-            cursor += childSpan;
-        }
-    };
-    place(place, document_.root, originX - spans[document_.root] * 0.5f, 0);
-}
-
 std::string TreeModel::CopyNodes(std::span<const uint32_t> ids) const {
     TreeDocument copy{};
     for (const DocumentNode& node : document_.nodes) {
@@ -341,17 +243,11 @@ std::string TreeModel::CopyNodes(std::span<const uint32_t> ids) const {
     return SerializeTreeDocument(copy);
 }
 
-std::vector<uint32_t> TreeModel::PasteNodes(std::string_view text, float x, float y) {
+std::vector<uint32_t> TreeModel::PasteNodes(std::string_view text) {
     TreeDocument pasted{};
     std::string error{};
     if (!ParseTreeDocument(text, pasted, error)) {
         return {};
-    }
-    float minimumX = pasted.nodes.front().x;
-    float minimumY = pasted.nodes.front().y;
-    for (const DocumentNode& node : pasted.nodes) {
-        minimumX = (std::min)(minimumX, node.x);
-        minimumY = (std::min)(minimumY, node.y);
     }
     std::unordered_map<uint32_t, uint32_t> renamed{};
     uint32_t next = NextId();
@@ -361,8 +257,6 @@ std::vector<uint32_t> TreeModel::PasteNodes(std::string_view text, float x, floa
     std::vector<uint32_t> created{};
     for (DocumentNode& node : pasted.nodes) {
         node.id = renamed[node.id];
-        node.x += x - minimumX;
-        node.y += y - minimumY;
         for (uint32_t& child : node.children) {
             child = renamed[child];
         }

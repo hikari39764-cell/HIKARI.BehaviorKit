@@ -8,7 +8,7 @@
 #include <string_view>
 #include <vector>
 
-#include "HIKARI_BehaviorEditorModel.h"
+#include "HIKARI_BehaviorEditorLayout.h"
 #include "HIKARI_BehaviorTree.h"
 
 using namespace HIKARI::BEHAVIOR;
@@ -197,69 +197,69 @@ void CheckErrors(const NodeRegistry& registry) {
     ExpectError(registry, "not json", "not a JSON object");
     ExpectError(registry, R"({"formatVersion": 1, "root": 1, "nodes": [{"id": 1, "type": "Succeed"}]})",
                 "formatVersion");
-    ExpectError(registry, R"({"formatVersion": 2, "root": 9, "nodes": [{"id": 1, "type": "Succeed"}]})", "root");
+    ExpectError(registry, R"({"formatVersion": 3, "root": 9, "nodes": [{"id": 1, "type": "Succeed"}]})", "root");
     ExpectError(
         registry,
-        R"({"formatVersion": 2, "root": 1, "nodes": [{"id": 1, "type": "Succeed"}, {"id": 1, "type": "Fail"}]})",
+        R"({"formatVersion": 3, "root": 1, "nodes": [{"id": 1, "type": "Succeed"}, {"id": 1, "type": "Fail"}]})",
         "used twice");
-    ExpectError(registry, R"({"formatVersion": 2, "root": 1, "nodes": [{"id": 1, "type": "NoSuchNode"}]})",
+    ExpectError(registry, R"({"formatVersion": 3, "root": 1, "nodes": [{"id": 1, "type": "NoSuchNode"}]})",
                 "unknown node type");
     ExpectError(registry,
-                R"({"formatVersion": 2, "root": 1, "nodes": [{"id": 1, "type": "Wait", "params": {"second": 1}}]})",
+                R"({"formatVersion": 3, "root": 1, "nodes": [{"id": 1, "type": "Wait", "params": {"second": 1}}]})",
                 "unknown parameter");
     ExpectError(registry,
-                R"({"formatVersion": 2, "root": 1, "nodes": [{"id": 1, "type": "Wait", "params": {"seconds": "x"}}]})",
+                R"({"formatVersion": 3, "root": 1, "nodes": [{"id": 1, "type": "Wait", "params": {"seconds": "x"}}]})",
                 "cannot be text");
     ExpectError(
         registry,
-        R"({"formatVersion": 2, "root": 1, "nodes": [{"id": 1, "type": "Wait", "params": {"seconds": {"key": "t"}}}]})",
+        R"({"formatVersion": 3, "root": 1, "nodes": [{"id": 1, "type": "Wait", "params": {"seconds": {"key": "t"}}}]})",
         "not declared");
     ExpectError(registry,
-                R"({"formatVersion": 2, "blackboard": [{"name": "p", "type": "vec3"}], "root": 1,
+                R"({"formatVersion": 3, "blackboard": [{"name": "p", "type": "vec3"}], "root": 1,
                     "nodes": [{"id": 1, "type": "Wait", "params": {"seconds": {"key": "p"}}}]})",
                 "wrong type");
     ExpectError(registry,
-                R"({"formatVersion": 2, "root": 1, "nodes": [{"id": 1, "type": "SetVariable", "params": {"key": 1}}]})",
+                R"({"formatVersion": 3, "root": 1, "nodes": [{"id": 1, "type": "SetVariable", "params": {"key": 1}}]})",
                 "must name a blackboard key");
     // 選択肢のある参数は、その中の値だけ。
     ExpectError(registry,
-                R"({"formatVersion": 2, "root": 1, "nodes": [
+                R"({"formatVersion": 3, "root": 1, "nodes": [
                     {"id": 1, "type": "Parallel", "params": {"policy": "some"}, "children": [2]},
                     {"id": 2, "type": "Succeed"}]})",
                 "must be one of: all any");
     ExpectError(registry,
-                R"({"formatVersion": 2, "root": 1, "nodes": [
+                R"({"formatVersion": 3, "root": 1, "nodes": [
                     {"id": 1, "type": "Selector", "params": {"order": "best"}, "children": [2]},
                     {"id": 2, "type": "Succeed"}]})",
                 "must be one of: fixed random utility");
-    ExpectError(registry, R"({"formatVersion": 2, "root": 1, "nodes": [{"id": 1, "type": "Inverter"}]})",
+    ExpectError(registry, R"({"formatVersion": 3, "root": 1, "nodes": [{"id": 1, "type": "Inverter"}]})",
                 "exactly one child");
     // 登記した装飾も子は一つ。
-    ExpectError(registry, R"({"formatVersion": 2, "root": 1, "nodes": [{"id": 1, "type": "Test.Twice"}]})",
+    ExpectError(registry, R"({"formatVersion": 3, "root": 1, "nodes": [{"id": 1, "type": "Test.Twice"}]})",
                 "exactly one child");
     ExpectError(registry,
-                R"({"formatVersion": 2, "root": 1, "nodes": [
+                R"({"formatVersion": 3, "root": 1, "nodes": [
                     {"id": 1, "type": "Score", "children": [2, 3]}, {"id": 2, "type": "Succeed"},
                     {"id": 3, "type": "Fail"}]})",
                 "exactly one child");
-    ExpectError(registry, R"({"formatVersion": 2, "root": 1, "nodes": [{"id": 1, "type": "Sequence"}]})",
+    ExpectError(registry, R"({"formatVersion": 3, "root": 1, "nodes": [{"id": 1, "type": "Sequence"}]})",
                 "at least one child");
     ExpectError(registry,
-                R"({"formatVersion": 2, "root": 1,
+                R"({"formatVersion": 3, "root": 1,
                     "nodes": [{"id": 1, "type": "Sequence", "children": [2, 2]}, {"id": 2, "type": "Succeed"}]})",
                 "more than once");
     ExpectError(registry,
-                R"({"formatVersion": 2, "root": 1,
+                R"({"formatVersion": 3, "root": 1,
                     "nodes": [{"id": 1, "type": "Sequence", "children": [1]}]})",
                 "more than once");
     const LoadSubtreeFn selfLoader = [](std::string_view, TreeDocument& out, std::string& error) {
         return ParseTreeDocument(
-            R"({"formatVersion": 2, "root": 1, "nodes": [{"id": 1, "type": "Subtree", "params": {"tree": "self"}}]})",
+            R"({"formatVersion": 3, "root": 1, "nodes": [{"id": 1, "type": "Subtree", "params": {"tree": "self"}}]})",
             out, error);
     };
     ExpectError(
         registry,
-        R"({"formatVersion": 2, "root": 1, "nodes": [{"id": 1, "type": "Subtree", "params": {"tree": "self"}}]})",
+        R"({"formatVersion": 3, "root": 1, "nodes": [{"id": 1, "type": "Subtree", "params": {"tree": "self"}}]})",
         "contains itself", selfLoader);
 }
 
@@ -267,7 +267,7 @@ void CheckSequenceAndSelector(const NodeRegistry& registry, Trace& trace) {
     trace = {};
     // 順序：a が 2 回目で終わり、同じ回に b が走って全体が成功する。
     TreeInstance sequence{};
-    sequence.Bind(Compile(registry, R"({"formatVersion": 2, "root": 1, "nodes": [
+    sequence.Bind(Compile(registry, R"({"formatVersion": 3, "root": 1, "nodes": [
         {"id": 1, "type": "Sequence", "children": [2, 3]},
         {"id": 2, "type": "Test.Work", "params": {"name": "a", "ticks": 2}},
         {"id": 3, "type": "Test.Work", "params": {"name": "b"}}]})"));
@@ -287,13 +287,13 @@ void CheckSequenceAndSelector(const NodeRegistry& registry, Trace& trace) {
 
     // 選択：最初の子が失敗し、二番目が成功する。失敗する子が先頭なら順序は失敗する。
     TreeInstance selector{};
-    selector.Bind(Compile(registry, R"({"formatVersion": 2, "root": 1, "nodes": [
+    selector.Bind(Compile(registry, R"({"formatVersion": 3, "root": 1, "nodes": [
         {"id": 1, "type": "Selector", "children": [2, 3]},
         {"id": 2, "type": "Test.Work", "params": {"name": "no", "result": false}},
         {"id": 3, "type": "Test.Work", "params": {"name": "yes"}}]})"));
     CHECK(Step(selector) == Status::Success);
     TreeInstance failing{};
-    failing.Bind(Compile(registry, R"({"formatVersion": 2, "root": 1, "nodes": [
+    failing.Bind(Compile(registry, R"({"formatVersion": 3, "root": 1, "nodes": [
         {"id": 1, "type": "Sequence", "children": [2, 3]},
         {"id": 2, "type": "Test.Work", "params": {"name": "no2", "result": false}},
         {"id": 3, "type": "Test.Work", "params": {"name": "never"}}]})"));
@@ -301,7 +301,7 @@ void CheckSequenceAndSelector(const NodeRegistry& registry, Trace& trace) {
     CHECK(trace.started["never"] == 0);
     // 条件が Running を返しても Failure として扱う。
     TreeInstance stuck{};
-    stuck.Bind(Compile(registry, R"({"formatVersion": 2, "root": 1, "nodes": [{"id": 1, "type": "Test.Stuck"}]})"));
+    stuck.Bind(Compile(registry, R"({"formatVersion": 3, "root": 1, "nodes": [{"id": 1, "type": "Test.Stuck"}]})"));
     CHECK(Step(stuck) == Status::Failure);
 }
 
@@ -310,7 +310,7 @@ void CheckReactiveInterrupt(const NodeRegistry& registry, Trace& trace) {
     // 巡回している間に alert が立つと、優先の枝が巡回を打ち切る。優先の枝の中の順序も reactive：
     // 追跡の間も毎回 alert を確かめ直す（reactive でなければ、走っている追跡から続けるだけで条件は見ない）。
     TreeInstance guard{};
-    guard.Bind(Compile(registry, R"({"formatVersion": 2,
+    guard.Bind(Compile(registry, R"({"formatVersion": 3,
         "blackboard": [{"name": "alert", "type": "bool"}], "root": 1, "nodes": [
         {"id": 1, "type": "Selector", "params": {"reactive": true}, "children": [2, 5]},
         {"id": 2, "type": "Sequence", "params": {"reactive": true}, "children": [3, 4]},
@@ -343,7 +343,7 @@ void CheckReactiveInterrupt(const NodeRegistry& registry, Trace& trace) {
 void CheckParallelAndDecorators(const NodeRegistry& registry, Trace& trace) {
     trace = {};
     TreeInstance all{};
-    all.Bind(Compile(registry, R"({"formatVersion": 2, "root": 1, "nodes": [
+    all.Bind(Compile(registry, R"({"formatVersion": 3, "root": 1, "nodes": [
         {"id": 1, "type": "Parallel", "children": [2, 3]},
         {"id": 2, "type": "Test.Work", "params": {"name": "short", "ticks": 1}},
         {"id": 3, "type": "Test.Work", "params": {"name": "long", "ticks": 3}}]})"));
@@ -352,7 +352,7 @@ void CheckParallelAndDecorators(const NodeRegistry& registry, Trace& trace) {
     CHECK(Step(all) == Status::Success);
     CHECK(trace.started["short"] == 1); // 終わった子は走り直さない
     TreeInstance any{};
-    any.Bind(Compile(registry, R"({"formatVersion": 2, "root": 1, "nodes": [
+    any.Bind(Compile(registry, R"({"formatVersion": 3, "root": 1, "nodes": [
         {"id": 1, "type": "Parallel", "params": {"policy": "any"}, "children": [2, 3]},
         {"id": 2, "type": "Test.Work", "params": {"name": "first", "ticks": 2}},
         {"id": 3, "type": "Test.Work", "params": {"name": "slow", "ticks": 50}}]})"));
@@ -361,13 +361,13 @@ void CheckParallelAndDecorators(const NodeRegistry& registry, Trace& trace) {
     CHECK(trace.aborted["slow"] == 1);
 
     TreeInstance inverter{};
-    inverter.Bind(Compile(registry, R"({"formatVersion": 2, "root": 1, "nodes": [
+    inverter.Bind(Compile(registry, R"({"formatVersion": 3, "root": 1, "nodes": [
         {"id": 1, "type": "Inverter", "children": [2]}, {"id": 2, "type": "Fail"}]})"));
     CHECK(Step(inverter) == Status::Success);
 
     trace = {};
     TreeInstance repeat{};
-    repeat.Bind(Compile(registry, R"({"formatVersion": 2, "root": 1, "nodes": [
+    repeat.Bind(Compile(registry, R"({"formatVersion": 3, "root": 1, "nodes": [
         {"id": 1, "type": "Repeat", "params": {"count": 3}, "children": [2]},
         {"id": 2, "type": "Test.Work", "params": {"name": "again"}}]})"));
     CHECK(Step(repeat) == Status::Running);
@@ -378,7 +378,7 @@ void CheckParallelAndDecorators(const NodeRegistry& registry, Trace& trace) {
     // 冷却：一度終わったら 1 秒は走らせずに失敗する。
     trace = {};
     TreeInstance cooldown{};
-    cooldown.Bind(Compile(registry, R"({"formatVersion": 2, "root": 1, "nodes": [
+    cooldown.Bind(Compile(registry, R"({"formatVersion": 3, "root": 1, "nodes": [
         {"id": 1, "type": "Cooldown", "params": {"seconds": 1.0}, "children": [2]},
         {"id": 2, "type": "Test.Work", "params": {"name": "shot"}}]})"));
     CHECK(Step(cooldown, 0.25f) == Status::Success);
@@ -391,7 +391,7 @@ void CheckParallelAndDecorators(const NodeRegistry& registry, Trace& trace) {
     // 時間切れ：0.5 秒を超えた子を打ち切って失敗する。
     trace = {};
     TreeInstance limit{};
-    limit.Bind(Compile(registry, R"({"formatVersion": 2, "root": 1, "nodes": [
+    limit.Bind(Compile(registry, R"({"formatVersion": 3, "root": 1, "nodes": [
         {"id": 1, "type": "TimeLimit", "params": {"seconds": 0.5}, "children": [2]},
         {"id": 2, "type": "Test.Work", "params": {"name": "endless", "ticks": 1000}}]})"));
     CHECK(Step(limit, 0.25f) == Status::Running);
@@ -401,7 +401,7 @@ void CheckParallelAndDecorators(const NodeRegistry& registry, Trace& trace) {
 
     // 待機：時間の合計で終わる。
     TreeInstance wait{};
-    wait.Bind(Compile(registry, R"({"formatVersion": 2, "root": 1, "nodes": [
+    wait.Bind(Compile(registry, R"({"formatVersion": 3, "root": 1, "nodes": [
         {"id": 1, "type": "Wait", "params": {"seconds": 0.3}}]})"));
     CHECK(Step(wait, 0.2f) == Status::Running);
     CHECK(Step(wait, 0.2f) == Status::Success);
@@ -412,7 +412,7 @@ void CheckOrdersAndChance(const NodeRegistry& registry, Trace& trace) {
     // utility：点数の高い順。同じ点数は左が先。Score の無い子は 1 点、0 以下は外す。
     trace = {};
     TreeInstance utility{};
-    utility.Bind(Compile(registry, R"({"formatVersion": 2, "root": 1, "nodes": [
+    utility.Bind(Compile(registry, R"({"formatVersion": 3, "root": 1, "nodes": [
         {"id": 1, "type": "Sequence", "params": {"order": "utility"}, "children": [2, 3, 4, 5]},
         {"id": 2, "type": "Score", "params": {"score": 1}, "children": [6]},
         {"id": 3, "type": "Score", "params": {"score": 3}, "children": [7]},
@@ -427,7 +427,7 @@ void CheckOrdersAndChance(const NodeRegistry& registry, Trace& trace) {
     // utility の選択：一番の子が失敗したら次の子。
     trace = {};
     TreeInstance fallback{};
-    fallback.Bind(Compile(registry, R"({"formatVersion": 2, "root": 1, "nodes": [
+    fallback.Bind(Compile(registry, R"({"formatVersion": 3, "root": 1, "nodes": [
         {"id": 1, "type": "Selector", "params": {"order": "utility"}, "children": [2, 3]},
         {"id": 2, "type": "Score", "params": {"score": 2}, "children": [4]},
         {"id": 3, "type": "Score", "params": {"score": 5}, "children": [5]},
@@ -436,7 +436,7 @@ void CheckOrdersAndChance(const NodeRegistry& registry, Trace& trace) {
     CHECK(Step(fallback) == Status::Success && trace.order == "bad good");
 
     // 点数を黒板から読む。reactive なら毎回読み直し、良い方が上回ると走っている子を打ち切って乗り換える。
-    const char* switching = R"({"formatVersion": 2, "blackboard": [
+    const char* switching = R"({"formatVersion": 3, "blackboard": [
         {"name": "x", "type": "float", "value": 2}, {"name": "y", "type": "float", "value": 1}], "root": 1, "nodes": [
         {"id": 1, "type": "Selector", "params": {"order": "utility", "reactive": REACTIVE}, "children": [2, 3]},
         {"id": 2, "type": "Score", "params": {"score": {"key": "x"}}, "children": [4]},
@@ -460,7 +460,7 @@ void CheckOrdersAndChance(const NodeRegistry& registry, Trace& trace) {
     trace = {};
     TreeInstance lottery{};
     lottery.Seed(12345u);
-    lottery.Bind(Compile(registry, R"({"formatVersion": 2, "root": 1, "nodes": [
+    lottery.Bind(Compile(registry, R"({"formatVersion": 3, "root": 1, "nodes": [
         {"id": 1, "type": "Selector", "params": {"order": "random"}, "children": [2, 3, 4]},
         {"id": 2, "type": "Score", "params": {"score": 3}, "children": [5]},
         {"id": 3, "type": "Score", "params": {"score": 1}, "children": [6]},
@@ -479,7 +479,7 @@ void CheckOrdersAndChance(const NodeRegistry& registry, Trace& trace) {
     trace = {};
     TreeInstance shuffle{};
     shuffle.Seed(7u);
-    shuffle.Bind(Compile(registry, R"({"formatVersion": 2, "root": 1, "nodes": [
+    shuffle.Bind(Compile(registry, R"({"formatVersion": 3, "root": 1, "nodes": [
         {"id": 1, "type": "Sequence", "params": {"order": "random"}, "children": [2, 3]},
         {"id": 2, "type": "Test.Work", "params": {"name": "p"}},
         {"id": 3, "type": "Test.Work", "params": {"name": "q"}}]})"));
@@ -495,7 +495,7 @@ void CheckOrdersAndChance(const NodeRegistry& registry, Trace& trace) {
     // Parallel：0 点の子は参加しない。参加する子が無い組み合わせは失敗。
     trace = {};
     TreeInstance together{};
-    together.Bind(Compile(registry, R"({"formatVersion": 2, "root": 1, "nodes": [
+    together.Bind(Compile(registry, R"({"formatVersion": 3, "root": 1, "nodes": [
         {"id": 1, "type": "Parallel", "params": {"order": "utility"}, "children": [2, 3, 4]},
         {"id": 2, "type": "Score", "params": {"score": 0}, "children": [5]},
         {"id": 3, "type": "Test.Work", "params": {"name": "p1"}},
@@ -505,7 +505,7 @@ void CheckOrdersAndChance(const NodeRegistry& registry, Trace& trace) {
     CHECK(Step(together) == Status::Success && trace.started["skip"] == 0 && trace.started["p1"] == 1);
     for (const char* type : {"Selector", "Sequence", "Parallel"}) {
         TreeInstance empty{};
-        empty.Bind(Compile(registry, std::string(R"({"formatVersion": 2, "root": 1, "nodes": [
+        empty.Bind(Compile(registry, std::string(R"({"formatVersion": 3, "root": 1, "nodes": [
             {"id": 1, "type": ")") + type +
                                          R"(", "params": {"order": "random"}, "children": [2]},
             {"id": 2, "type": "Score", "params": {"score": -1}, "children": [3]},
@@ -517,7 +517,7 @@ void CheckOrdersAndChance(const NodeRegistry& registry, Trace& trace) {
     const auto successes = [&](float chance) {
         TreeInstance coin{};
         coin.Seed(99u);
-        coin.Bind(Compile(registry, R"({"formatVersion": 2, "root": 1, "nodes": [
+        coin.Bind(Compile(registry, R"({"formatVersion": 3, "root": 1, "nodes": [
             {"id": 1, "type": "Chance", "params": {"chance": )" +
                                         std::to_string(chance) + "}}]}"));
         int count = 0;
@@ -535,7 +535,7 @@ void CheckOrdersAndChance(const NodeRegistry& registry, Trace& trace) {
 void CheckCustomDecorators(const NodeRegistry& registry, Trace& trace) {
     trace = {};
     TreeInstance twice{};
-    twice.Bind(Compile(registry, R"({"formatVersion": 2, "root": 1, "nodes": [
+    twice.Bind(Compile(registry, R"({"formatVersion": 3, "root": 1, "nodes": [
         {"id": 1, "type": "Test.Twice", "children": [2]},
         {"id": 2, "type": "Test.Work", "params": {"name": "inner", "ticks": 2}}]})"));
     CHECK(Step(twice) == Status::Running && twice.State(0u) == NodeState::Waiting);
@@ -548,7 +548,7 @@ void CheckCustomDecorators(const NodeRegistry& registry, Trace& trace) {
     // 登記した装飾の score を親が読む（weight 0.5 → 5 点で、3 点の子より先）。
     trace = {};
     TreeInstance scored{};
-    scored.Bind(Compile(registry, R"({"formatVersion": 2, "root": 1, "nodes": [
+    scored.Bind(Compile(registry, R"({"formatVersion": 3, "root": 1, "nodes": [
         {"id": 1, "type": "Selector", "params": {"order": "utility"}, "children": [2, 3]},
         {"id": 2, "type": "Score", "params": {"score": 3}, "children": [4]},
         {"id": 3, "type": "Test.Twice", "params": {"weight": 0.5}, "children": [5]},
@@ -559,7 +559,7 @@ void CheckCustomDecorators(const NodeRegistry& registry, Trace& trace) {
     // 上の節に打ち切られると、装飾の子が先に打ち切られ、装飾の stop も aborted で呼ばれる。
     trace = {};
     TreeInstance race{};
-    race.Bind(Compile(registry, R"({"formatVersion": 2, "root": 1, "nodes": [
+    race.Bind(Compile(registry, R"({"formatVersion": 3, "root": 1, "nodes": [
         {"id": 1, "type": "Parallel", "params": {"policy": "any"}, "children": [2, 3]},
         {"id": 2, "type": "Test.Twice", "children": [4]},
         {"id": 3, "type": "Test.Work", "params": {"name": "quick", "ticks": 2}},
@@ -573,7 +573,7 @@ void CheckCustomDecorators(const NodeRegistry& registry, Trace& trace) {
     // 装飾が子を待たずに終わると、走っている子は打ち切られる。
     trace = {};
     TreeInstance giveUp{};
-    giveUp.Bind(Compile(registry, R"({"formatVersion": 2, "root": 1, "nodes": [
+    giveUp.Bind(Compile(registry, R"({"formatVersion": 3, "root": 1, "nodes": [
         {"id": 1, "type": "Test.GiveUp", "children": [2]},
         {"id": 2, "type": "Test.Work", "params": {"name": "dropped", "ticks": 5}}]})"));
     CHECK(Step(giveUp) == Status::Failure);
@@ -584,7 +584,7 @@ void CheckCustomDecorators(const NodeRegistry& registry, Trace& trace) {
 // Play 中に樹を書き換えた時：参数の値だけなら走っている途中のまま新しい樹へ移り、形が変われば移れない。
 void CheckLiveSwap(const NodeRegistry& registry, Trace& trace) {
     trace = {};
-    const char* base = R"({"formatVersion": 2, "blackboard": [{"name": "alert", "type": "bool"}], "root": 1,
+    const char* base = R"({"formatVersion": 3, "blackboard": [{"name": "alert", "type": "bool"}], "root": 1,
         "nodes": [{"id": 1, "type": "Sequence", "children": [2, 3]},
         {"id": 2, "type": "Test.Work", "params": {"name": "a", "ticks": TICKS}},
         {"id": 3, "type": "Test.Work", "params": {"name": "b"}}]})";
@@ -606,11 +606,11 @@ void CheckLiveSwap(const NodeRegistry& registry, Trace& trace) {
 
     // 節を足す・キーを足すと形が変わる：移れない（呼ぶ側が最初からやり直す）。
     const auto current = withTicks(2);
-    const auto added = Compile(registry, R"({"formatVersion": 2, "blackboard": [{"name": "alert", "type": "bool"}],
+    const auto added = Compile(registry, R"({"formatVersion": 3, "blackboard": [{"name": "alert", "type": "bool"}],
         "root": 1, "nodes": [{"id": 1, "type": "Sequence", "children": [2, 3, 4]},
         {"id": 2, "type": "Test.Work", "params": {"name": "a", "ticks": 2}},
         {"id": 3, "type": "Test.Work", "params": {"name": "b"}}, {"id": 4, "type": "Succeed"}]})");
-    const auto keyed = Compile(registry, R"({"formatVersion": 2, "blackboard": [{"name": "alert", "type": "bool"},
+    const auto keyed = Compile(registry, R"({"formatVersion": 3, "blackboard": [{"name": "alert", "type": "bool"},
         {"name": "speed", "type": "float"}], "root": 1,
         "nodes": [{"id": 1, "type": "Sequence", "children": [2, 3]},
         {"id": 2, "type": "Test.Work", "params": {"name": "a", "ticks": 2}},
@@ -625,7 +625,7 @@ void CheckLiveSwap(const NodeRegistry& registry, Trace& trace) {
 void CheckBlackboard(const NodeRegistry& registry) {
     // 数値と真偽は型を保って写し、比べる。位置は同じ型同士。
     TreeInstance tree{};
-    tree.Bind(Compile(registry, R"({"formatVersion": 2, "blackboard": [
+    tree.Bind(Compile(registry, R"({"formatVersion": 3, "blackboard": [
         {"name": "count", "type": "int", "value": 2}, {"name": "ratio", "type": "float"},
         {"name": "ready", "type": "bool"}, {"name": "home", "type": "vec3", "value": [1, 2, 3]},
         {"name": "goal", "type": "vec3"}, {"name": "target", "type": "object"}], "root": 1, "nodes": [
@@ -653,12 +653,12 @@ void CheckSubtreeAndSharing(const NodeRegistry& registry, Trace& trace) {
             error = "no such tree";
             return false;
         }
-        return ParseTreeDocument(R"({"formatVersion": 2, "blackboard": [
+        return ParseTreeDocument(R"({"formatVersion": 3, "blackboard": [
             {"name": "alert", "type": "bool"}, {"name": "level", "type": "int", "value": 7}], "root": 10, "nodes": [
             {"id": 10, "type": "SetVariable", "params": {"key": {"key": "alert"}, "value": true}}]})",
                                  out, error);
     };
-    const auto shared = Compile(registry, R"({"formatVersion": 2, "blackboard": [{"name": "alert", "type": "bool"}],
+    const auto shared = Compile(registry, R"({"formatVersion": 3, "blackboard": [{"name": "alert", "type": "bool"}],
         "root": 1, "nodes": [
         {"id": 1, "type": "Sequence", "children": [2, 3]},
         {"id": 2, "type": "Test.Work", "params": {"name": "think", "ticks": 2}},
@@ -667,7 +667,7 @@ void CheckSubtreeAndSharing(const NodeRegistry& registry, Trace& trace) {
     CHECK(shared != nullptr && shared->nodes.size() == 3u && shared->keys.size() == 2u &&
           shared->nodes[2].sourceTree == 1u && shared->nodes[2].sourceId == 10u);
     ExpectError(registry,
-                R"({"formatVersion": 2, "root": 1, "nodes": [{"id": 1, "type": "Subtree", "params": {"tree": "x"}}]})",
+                R"({"formatVersion": 3, "root": 1, "nodes": [{"id": 1, "type": "Subtree", "params": {"tree": "x"}}]})",
                 "no such tree", loader);
     // 同じ樹を二人が使う：進み具合も黒板も別々。
     TreeInstance first{};
@@ -684,17 +684,16 @@ void CheckSubtreeAndSharing(const NodeRegistry& registry, Trace& trace) {
     CHECK(second.GetKey("level", level) && level.integer == 7);
 }
 
-// 編集器が書いた文字を読み戻すと同じ内容になる（位置、参数の種類、黒板の初期値、根から辿れない節）。
+// 編集器が書いた文字を読み戻すと同じ内容になる（畳んだ印、参数の種類、黒板の初期値、根から辿れない節）。前の版は読まない。
 void CheckSerialization() {
-    const char* source = R"({"formatVersion": 2, "blackboard": [
+    const char* source = R"({"formatVersion": 3, "blackboard": [
         {"name": "target", "type": "object"}, {"name": "home", "type": "vec3", "value": [1, 2.5, -3]},
         {"name": "count", "type": "int", "value": 4}, {"name": "armed", "type": "bool", "value": true}],
         "root": 1, "nodes": [
-        {"id": 1, "type": "Selector", "x": 10, "y": -20.5, "params": {"reactive": true}, "children": [3, 2]},
-        {"id": 2, "type": "Wait", "x": 120, "y": 110, "params": {"seconds": 0.3}},
-        {"id": 3, "type": "MoveToObject", "x": -120, "y": 110,
-         "params": {"target": {"key": "target"}, "speed": 4, "note": "run"}},
-        {"id": 9, "type": "Fail", "x": 400, "y": 0}]})";
+        {"id": 1, "type": "Selector", "collapsed": true, "params": {"reactive": true}, "children": [3, 2]},
+        {"id": 2, "type": "Wait", "params": {"seconds": 0.3}},
+        {"id": 3, "type": "MoveToObject", "params": {"target": {"key": "target"}, "speed": 4, "note": "run"}},
+        {"id": 9, "type": "Fail"}]})";
     TreeDocument first{};
     TreeDocument second{};
     std::string error{};
@@ -702,6 +701,11 @@ void CheckSerialization() {
     const std::string text = SerializeTreeDocument(first);
     CHECK(ParseTreeDocument(text, second, error));
     CHECK(text.find("0.3") != std::string::npos && text.find("0.30000") == std::string::npos);
+    // 畳んだ印は畳んだ節にだけ書く。位置は書かない。
+    CHECK(text.find("\"collapsed\"") == text.rfind("\"collapsed\"") && text.find("\"x\"") == std::string::npos);
+    TreeDocument old{};
+    CHECK(
+        !ParseTreeDocument(R"({"formatVersion": 2, "root": 1, "nodes": [{"id": 1, "type": "Selector"}]})", old, error));
     CHECK(second.root == 1u && second.nodes.size() == 4u && second.blackboard.size() == 4u);
     CHECK(second.blackboard[1].value.type == ValueType::Vec3 && second.blackboard[1].value.vector.y == 2.5f &&
           second.blackboard[2].value.integer == 4 && second.blackboard[3].value.boolean &&
@@ -709,7 +713,7 @@ void CheckSerialization() {
     for (size_t index = 0u; index < first.nodes.size() && index < second.nodes.size(); ++index) {
         const DocumentNode& a = first.nodes[index];
         const DocumentNode& b = second.nodes[index];
-        CHECK(a.id == b.id && a.type == b.type && a.x == b.x && a.y == b.y && a.children == b.children &&
+        CHECK(a.id == b.id && a.type == b.type && a.collapsed == b.collapsed && a.children == b.children &&
               a.params.size() == b.params.size());
         for (size_t param = 0u; param < a.params.size() && param < b.params.size(); ++param) {
             const DocumentParam& left = a.params[param];
@@ -725,34 +729,49 @@ void CheckSerialization() {
     CHECK(second.nodes[2].params.size() == 3u);
 }
 
-// 編集器が樹を書き換える操作：繋ぐ時の決まり、並び、複写、整列、確認。
+// 編集器が樹を書き換える操作：繋ぐ時の決まり、子の順、並べ替え、畳む、複写、確認。
 void CheckEditorModel(const NodeRegistry& registry) {
     using namespace HIKARI::BEHAVIOR::EDITING;
+    constexpr size_t kLast = TreeModel::kLast;
     TreeModel model{};
     std::string message{};
     CHECK(model.Load(SerializeTreeDocument(TreeModel::MakeNew()), message));
     const uint32_t root = model.Document().root;
-    CHECK(model.AddNode(registry, "NoSuchNode", 0.0f, 0.0f, message) == 0u && !message.empty());
-    const uint32_t sequence = model.AddNode(registry, "Sequence", 0.0f, 110.0f, message);
-    const uint32_t right = model.AddNode(registry, "Wait", 50.0f, 220.0f, message);
-    const uint32_t left = model.AddNode(registry, "Wait", -50.0f, 220.0f, message);
-    const uint32_t inverter = model.AddNode(registry, "Inverter", 150.0f, 220.0f, message);
+    CHECK(model.AddNode(registry, "NoSuchNode", message) == 0u && !message.empty());
+    const uint32_t sequence = model.AddNode(registry, "Sequence", message);
+    const uint32_t right = model.AddNode(registry, "Wait", message);
+    const uint32_t left = model.AddNode(registry, "Wait", message);
+    const uint32_t inverter = model.AddNode(registry, "Inverter", message);
     CHECK(sequence != 0u && right != 0u && left != 0u && inverter != 0u);
-    CHECK(model.Connect(registry, root, sequence, message) && model.Connect(registry, sequence, right, message) &&
-          model.Connect(registry, sequence, left, message) && model.Connect(registry, sequence, inverter, message));
-    // 子は画面の左から右の順に走る。
+    CHECK(model.Connect(registry, root, sequence, kLast, message) &&
+          model.Connect(registry, sequence, right, kLast, message) &&
+          model.Connect(registry, sequence, left, 0u, message) &&
+          model.Connect(registry, sequence, inverter, kLast, message));
+    // 子は並べた順に走る。index で前へ挿せる。
     CHECK(model.Find(sequence)->children == std::vector<uint32_t>({left, right, inverter}));
-    CHECK(model.MoveNode(left, 100.0f, 220.0f));
-    model.SortChildren();
-    CHECK(model.Find(sequence)->children == std::vector<uint32_t>({right, left, inverter}));
+    // 同じ親の中の並べ替え：自分の前後へ置くのは変化なし、後ろへ動かすと一つ詰まる。
+    message.clear();
+    CHECK(!model.Connect(registry, sequence, left, 1u, message) && message.empty());
+    CHECK(model.Connect(registry, sequence, left, kLast, message) &&
+          model.Find(sequence)->children == std::vector<uint32_t>({right, inverter, left}));
+    CHECK(model.Connect(registry, sequence, left, 1u, message) &&
+          model.Find(sequence)->children == std::vector<uint32_t>({right, left, inverter}));
     // 葉は子を持てない。根は子になれない。輪は作れない。
-    CHECK(!model.Connect(registry, right, left, message) && !model.Connect(registry, sequence, root, message) &&
-          !model.Connect(registry, inverter, sequence, message));
+    CHECK(model.CheckAttach(registry, right, left) == AttachProblem::NoChildren &&
+          model.CheckAttach(registry, sequence, root) == AttachProblem::Root &&
+          model.CheckAttach(registry, inverter, sequence) == AttachProblem::Loop);
+    CHECK(!model.Connect(registry, right, left, kLast, message) &&
+          !model.Connect(registry, sequence, root, kLast, message) &&
+          !model.Connect(registry, inverter, sequence, kLast, message));
     CHECK(model.ParentOf(left) == sequence && model.ParentOf(sequence) == root);
     // 子を一つしか持てない節は、前の子と入れ替える。子は前の親から外れる。
-    CHECK(model.Connect(registry, inverter, right, message) && model.Connect(registry, inverter, left, message));
+    CHECK(model.Connect(registry, inverter, right, kLast, message) &&
+          model.Connect(registry, inverter, left, kLast, message));
     CHECK(model.Find(inverter)->children == std::vector<uint32_t>({left}) && model.ParentOf(right) == 0u &&
           model.Find(sequence)->children == std::vector<uint32_t>({inverter}));
+    // 畳めるのは子のある節だけ。
+    CHECK(model.SetCollapsed(inverter, true) && !model.SetCollapsed(inverter, true) &&
+          !model.SetCollapsed(right, true) && model.SetCollapsed(inverter, false));
 
     // 繋がっていない節は警告で、樹は走れる。
     std::vector<Problem> problems = model.Validate(registry, {});
@@ -774,29 +793,87 @@ void CheckEditorModel(const NodeRegistry& registry) {
 
     // 複写は互いの親子関係ごと（樹のファイルに並ぶ順：sequence、left、inverter）。貼った節は新しい id で、元の樹には繋がらない。
     const std::vector<uint32_t> copied{sequence, inverter, left};
-    const std::vector<uint32_t> pasted = model.PasteNodes(model.CopyNodes(copied), 500.0f, 500.0f);
+    const std::vector<uint32_t> pasted = model.PasteNodes(model.CopyNodes(copied));
     CHECK(pasted.size() == 3u && model.Document().nodes.size() == 8u && model.ParentOf(pasted[0]) == 0u &&
           model.Find(pasted[0])->children == std::vector<uint32_t>({pasted[2]}) &&
-          model.Find(pasted[2])->children == std::vector<uint32_t>({pasted[1]}) && model.Find(pasted[0])->x == 500.0f);
-    CHECK(model.PasteNodes("not a tree", 0.0f, 0.0f).empty());
+          model.Find(pasted[2])->children == std::vector<uint32_t>({pasted[1]}));
+    CHECK(model.PasteNodes("not a tree").empty());
 
     // 根は消せない。消した節は親の子の一覧からも消える。
     const std::vector<uint32_t> removed{root, inverter};
     CHECK(model.RemoveNodes(removed, message) == 1u && model.Find(root) != nullptr &&
           model.Find(sequence)->children.empty() && model.ParentOf(left) == 0u);
 
-    // 整列：子は親の一段下、兄弟は重ならない。
-    CHECK(model.Connect(registry, sequence, left, message) && model.Connect(registry, sequence, right, message));
-    model.Arrange({});
-    const DocumentNode* parent = model.Find(sequence);
-    const DocumentNode* first = model.Find(parent->children[0]);
-    const DocumentNode* second = model.Find(parent->children[1]);
-    CHECK(parent->y > model.Find(root)->y && first->y > parent->y && first->y == second->y &&
-          second->x - first->x >= 140.0f && first->x < parent->x && parent->x < second->x);
-
     TreeModel reloaded{};
+    CHECK(model.Connect(registry, sequence, left, kLast, message));
     CHECK(reloaded.Load(model.Save(), message) && reloaded.Document().nodes.size() == model.Document().nodes.size() &&
-          reloaded.Find(sequence)->children == parent->children);
+          reloaded.Find(sequence)->children == model.Find(sequence)->children);
+}
+
+// 図の並べ方（位置はファイルに無く、樹の形だけで決まる）と、拖動して離した時の落とし先。
+void CheckEditorLayout(const NodeRegistry& registry) {
+    using namespace HIKARI::BEHAVIOR::EDITING;
+    TreeModel model{};
+    std::string message{};
+    CHECK(model.Load(R"({"formatVersion": 3, "root": 1, "nodes": [
+        {"id": 1, "type": "Selector", "children": [2, 5]},
+        {"id": 2, "type": "Sequence", "children": [3, 4]},
+        {"id": 3, "type": "Wait"}, {"id": 4, "type": "Wait"},
+        {"id": 5, "type": "Inverter", "children": [6]}, {"id": 6, "type": "Wait"},
+        {"id": 7, "type": "Sequence", "children": [8]}, {"id": 8, "type": "Wait"}]})",
+                     message));
+    const TreeLayout layout = LayoutTree(model.Document(), {});
+    const auto at = [&](uint32_t id) { return layout.Find(id); };
+    CHECK(layout.nodes.size() == 8u && layout.hiddenBy.empty());
+    // 子は親の一段下、兄弟は左から子の順で重ならない。兄弟が二つ以上の時だけ順番の札。
+    CHECK(at(2)->y > at(1)->y && at(3)->y > at(2)->y && at(3)->y == at(4)->y && at(4)->x >= at(3)->x + at(3)->width &&
+          at(5)->x >= at(2)->x + at(2)->width);
+    CHECK(at(2)->order == 1u && at(5)->order == 2u && at(3)->order == 1u && at(4)->order == 2u && at(6)->order == 0u &&
+          at(1)->order == 0u);
+    // 根から辿れない節は、本体より右の列に、その子と一緒に並ぶ。
+    float bodyRight = 0.0f;
+    for (const uint32_t id : {1u, 2u, 3u, 4u, 5u, 6u}) {
+        bodyRight = (std::max)(bodyRight, at(id)->x + at(id)->width);
+    }
+    CHECK(at(7)->x > bodyRight && at(8)->y > at(7)->y);
+    // 同じ形なら同じ位置（毎フレーム並べ直しても動かない）。
+    const TreeLayout again = LayoutTree(model.Document(), {});
+    CHECK(again.Find(4)->x == at(4)->x && again.Find(8)->y == at(8)->y);
+
+    // 畳んだ節の子孫は見えず、数が出る。
+    TreeModel folded = model;
+    CHECK(folded.SetCollapsed(2, true));
+    const TreeLayout small = LayoutTree(folded.Document(), {});
+    CHECK(small.nodes.size() == 6u && small.Find(3) == nullptr && small.Find(2)->hidden == 2u &&
+          small.hiddenBy.at(4) == 2u);
+
+    // 落とし先：節の真ん中は最後の子、端は兄弟の前後、葉は左右の半分、何も無い所は樹から外す。
+    const LaidOutNode& sequence = *at(2);
+    const LaidOutNode& wait = *at(4);
+    const float middleY = sequence.y + sequence.height * 0.5f;
+    DropPlan plan = PlanDrop(model, registry, layout, 6u, 2u, sequence.x + sequence.width * 0.5f, middleY);
+    CHECK(plan.parent == 2u && plan.index == TreeModel::kLast && plan.outline == 2u && plan.Allowed());
+    plan = PlanDrop(model, registry, layout, 6u, 4u, wait.x + 2.0f, wait.y + 2.0f);
+    CHECK(plan.parent == 2u && plan.index == 1u && plan.line && plan.lineX < wait.x && plan.Allowed());
+    plan = PlanDrop(model, registry, layout, 6u, 2u, sequence.x + 1.0f, middleY);
+    CHECK(plan.parent == 1u && plan.index == 0u && plan.line);
+    // 兄弟の横の隙間。
+    plan = PlanDrop(model, registry, layout, 6u, 0u, wait.x + wait.width + 6.0f, wait.y + 4.0f);
+    CHECK(plan.parent == 2u && plan.index == 2u && plan.line);
+    plan = PlanDrop(model, registry, layout, 6u, 0u, bodyRight + 5000.0f, -5000.0f);
+    CHECK(plan.parent == 0u && plan.Allowed());
+    // 置けない：根を誰かの下、子のいる装飾、同じ場所。
+    plan = PlanDrop(model, registry, layout, 1u, 7u, at(7)->x + at(7)->width * 0.5f, at(7)->y + 4.0f);
+    CHECK(plan.problem == AttachProblem::Root && !plan.Allowed());
+    plan = PlanDrop(model, registry, layout, 7u, 5u, at(5)->x + at(5)->width * 0.5f, at(5)->y + 4.0f);
+    CHECK(plan.full && !plan.Allowed());
+    plan = PlanDrop(model, registry, layout, 3u, 4u, wait.x + 2.0f, wait.y + 2.0f);
+    CHECK(plan.unchanged && !plan.Allowed());
+    plan = PlanDrop(model, registry, layout, 7u, 0u, bodyRight + 5000.0f, -5000.0f);
+    CHECK(plan.unchanged);
+    // 拖動中の節の子孫は落とし先にならない（ポインタの下にあっても）。
+    plan = PlanDrop(model, registry, layout, 2u, 3u, at(3)->x + at(3)->width * 0.5f, at(3)->y + 4.0f);
+    CHECK(plan.outline == 0u && plan.parent != 3u);
 }
 
 } // namespace
@@ -818,6 +895,7 @@ int main() {
     CheckSubtreeAndSharing(registry, trace);
     CheckSerialization();
     CheckEditorModel(registry);
+    CheckEditorLayout(registry);
     // 登記を外すと版が進み、種類は見つからなくなる（編訳済みの樹は作り直しになる）。
     const uint64_t registered = registry.Revision();
     CHECK(registry.Unregister(&trace) == 4u && registry.Revision() != registered &&

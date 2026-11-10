@@ -20,6 +20,19 @@ struct Problem {
     bool warning = false;
 };
 
+// 節を別の節の子にできない理由。
+enum class AttachProblem : uint8_t {
+    None,
+    // どちらかの節が無いか、同じ節。
+    Missing,
+    // 親が子を持てない種類（葉、Subtree）。
+    NoChildren,
+    // 根は誰の子にもなれない。
+    Root,
+    // 自分の子孫の下へは置けない。
+    Loop,
+};
+
 class TreeModel {
 public:
     // 根（Selector）だけの新しい樹。
@@ -34,18 +47,19 @@ public:
     uint32_t ParentOf(uint32_t id) const noexcept;
 
     // ---- 編集。変わった時に true、断った時は false と理由 ----
-    // 新しい節の id を返す。種類を知らなければ 0。
-    uint32_t AddNode(const NodeRegistry& registry, std::string_view type, float x, float y, std::string& message);
-    // 置く場所を選ばずに足す：根と同じ段の、今ある節より右。
-    uint32_t AddNodeAside(const NodeRegistry& registry, std::string_view type, std::string& message);
+    // 新しい節の id を返す（どこにも繋がっていない節）。種類を知らなければ 0。
+    uint32_t AddNode(const NodeRegistry& registry, std::string_view type, std::string& message);
     // 根は消せない（先に別の節を根にする）。消した数を返す。
     size_t RemoveNodes(std::span<const uint32_t> ids, std::string& message);
-    // child を parent の子にする。前の親からは外す。子を一つしか持てない親は、前の子と入れ替える。
-    bool Connect(const NodeRegistry& registry, uint32_t parent, uint32_t child, std::string& message);
+    // child を parent の子の index 番目（kLast か子の数以上なら最後）にする。前の親からは外す（同じ親なら並べ替え）。
+    // 子を一つしか持てない親は、前の子と入れ替える。子は左から順に走る。
+    static constexpr size_t kLast = static_cast<size_t>(-1);
+    bool Connect(const NodeRegistry& registry, uint32_t parent, uint32_t child, size_t index, std::string& message);
+    // child を parent の子にできるか（Connect が断る形）。
+    AttachProblem CheckAttach(const NodeRegistry& registry, uint32_t parent, uint32_t child) const noexcept;
     bool Disconnect(uint32_t child);
-    bool MoveNode(uint32_t id, float x, float y);
-    // child を、parent の子の index 番目（子の数以上なら最後）に並ぶ位置へ置く。位置だけで、繋ぐのは Connect。
-    void PlaceUnder(uint32_t parent, uint32_t child, size_t index);
+    // 子を畳む（編集器で見せない）。子の無い節は畳まない。
+    bool SetCollapsed(uint32_t id, bool collapsed);
     bool SetRoot(uint32_t id, std::string& message);
     // 参数を書く（param.name で探して置き換える）。種類が宣言していない名前は断る。
     bool SetParam(const NodeRegistry& registry, uint32_t id, DocumentParam param, std::string& message);
@@ -55,14 +69,9 @@ public:
     bool SetKey(DocumentKey key, std::string& message);
     bool RemoveKey(std::string_view name);
 
-    // 子の順を画面の左から右（x の小さい順）に揃える。実行の順は子の順なので、動かした後に呼ぶ。
-    void SortChildren();
-    // 根から辿れる節を樹の形に並べ直す。widths は節ごとの幅（無い節は既定の幅）。
-    void Arrange(std::span<const std::pair<uint32_t, float>> widths);
-
-    // 選んだ節を、互いの親子関係ごと書き出す（複写用）／貼り付ける。貼った節の id を返す。
+    // 選んだ節を、互いの親子関係ごと書き出す（複写用）／貼り付ける（どこにも繋がっていない節になる）。貼った節の id を返す。
     std::string CopyNodes(std::span<const uint32_t> ids) const;
-    std::vector<uint32_t> PasteNodes(std::string_view text, float x, float y);
+    std::vector<uint32_t> PasteNodes(std::string_view text);
 
     // 編訳して確かめる。問題が無ければ空。
     std::vector<Problem> Validate(const NodeRegistry& registry, const LoadSubtreeFn& loadSubtree) const;

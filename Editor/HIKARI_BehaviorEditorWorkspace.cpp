@@ -255,15 +255,13 @@ void TreeWorkspace::AddFromLibrary(OpenTree& tree, const std::string& typeName) 
         }
     }
     std::string message{};
-    const uint32_t id = model.AddNodeAside(registry, typeName, message);
+    const uint32_t id = model.AddNode(registry, typeName, message);
     if (id == 0u) {
         status_ = Plain(message);
         return;
     }
     if (parent != 0u) {
-        model.PlaceUnder(parent, id, model.Find(parent)->children.size());
-        model.Connect(registry, parent, id, message);
-        model.Arrange(tree.widths);
+        model.Connect(registry, parent, id, TreeModel::kLast, message);
     }
     tree.Select({id});
     Commit(tree);

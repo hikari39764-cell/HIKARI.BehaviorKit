@@ -10,7 +10,7 @@
 #include <vector>
 
 #include "HIKARI/Project/EditorDocuments.h"
-#include "HIKARI_BehaviorEditorModel.h"
+#include "HIKARI_BehaviorEditorLayout.h"
 
 namespace HIKARI::EDITOR_PROJECT {
 class IEditorSceneServices;
@@ -37,9 +37,9 @@ struct OpenTree {
     // ---- 画面の状態 ----
     // 図で選ばれている節。
     std::vector<uint32_t> selected{};
-    // 図が測った節の幅（整列用）。
-    std::vector<std::pair<uint32_t, float>> widths{};
-    // 次の描画で一度だけ：全体が見えるよう視点を合わせる、選択を selected に置き換える。
+    // 図が前のフレームに測った節の大きさ（並べるのに使う）。
+    std::unordered_map<uint32_t, NodeSize> sizes{};
+    // 次の描画で：全体が見えるよう視点を合わせる（節の大きさが測れるまで続ける）、選択を selected に置き換える（一度）。
     bool frameAll = true;
     bool applySelection = false;
 

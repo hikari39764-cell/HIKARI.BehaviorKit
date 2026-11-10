@@ -41,10 +41,11 @@ target_link_libraries(HIKARI_BehaviorKit PRIVATE behaviorkit_core HIKARI::CoreSh
 # 行動テスト（既定の構築には入らない）：cmake --build --preset editor-release --target HIKARI_BehaviorTreeContracts
 # の後、ctest --preset editor-release で走る。
 enable_testing()
-# 編集器が樹を書き換える部分（TreeModel）は核だけに依るので、ここで一緒に確かめる。
+# 編集器が樹を書き換える部分（TreeModel）と図の並べ方・落とし先（Layout）は核だけに依るので、ここで一緒に確かめる。
 add_executable(HIKARI_BehaviorTreeContracts EXCLUDE_FROM_ALL
                "${CMAKE_CURRENT_SOURCE_DIR}/Tests/HIKARI_BehaviorTreeContracts.cpp"
-               "${CMAKE_CURRENT_SOURCE_DIR}/Editor/HIKARI_BehaviorEditorModel.cpp")
+               "${CMAKE_CURRENT_SOURCE_DIR}/Editor/HIKARI_BehaviorEditorModel.cpp"
+               "${CMAKE_CURRENT_SOURCE_DIR}/Editor/HIKARI_BehaviorEditorLayout.cpp")
 target_include_directories(HIKARI_BehaviorTreeContracts PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/Editor")
 target_link_libraries(HIKARI_BehaviorTreeContracts PRIVATE behaviorkit_core)
 hikari_configure_module_target(HIKARI_BehaviorTreeContracts)

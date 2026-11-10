@@ -71,8 +71,10 @@ private:
     std::string StatusLine(EDITOR_PROJECT::IEditorWorkspaceUi& ui, const OpenTree& tree, size_t problemCount,
                            const RunView& run) const;
     void DrawGraph(EDITOR_PROJECT::IEditorWorkspaceUi& ui, OpenTree& tree, const RunView& run);
-    void ApplyGraphResult(EDITOR_PROJECT::IEditorWorkspaceUi& ui, OpenTree& tree,
+    void ApplyGraphResult(EDITOR_PROJECT::IEditorWorkspaceUi& ui, OpenTree& tree, const TreeLayout& layout,
                           const EDITOR_PROJECT::EditorNodeGraphResult& result);
+    // 拖動中にポインタの横へ出す、離すと何が起きるか（置けない時はその理由）。
+    std::string DescribeDrop(EDITOR_PROJECT::IEditorWorkspaceUi& ui, const OpenTree& tree, const DropPlan& plan) const;
 
     std::shared_ptr<TreeEditor> editor_;
     Message status_{};
@@ -86,6 +88,15 @@ private:
     std::vector<EDITOR_PROJECT::EditorNodeGraphMenuItem> createItems_{};
     uint64_t typesRevision_ = 0u;
 
+    // 節を拖動している間の、前のフレームに決めた落とし先と、その知らせ。
+    struct DragDrop {
+        bool dragging = false;
+        DropPlan plan{};
+        std::string message{};
+    };
+    DragDrop drop_{};
+    // Play 中、走っている節を画面に入れておく。
+    bool followRunning_ = true;
     // 右上の游戏画面を出す（切ると場景を描画しない）。
     bool showGame_ = true;
     float frameSeconds_ = 0.0f;
