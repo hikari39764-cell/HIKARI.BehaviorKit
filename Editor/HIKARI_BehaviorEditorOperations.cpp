@@ -11,6 +11,7 @@
 #include <json.hpp>
 
 #include "HIKARI/Project/ProjectLog.h"
+#include "HIKARI_BehaviorEditorTemplates.h"
 #include "HIKARI_BehaviorEditorParts.h"
 #include "HIKARI_BehaviorLibrary.h"
 
@@ -318,13 +319,20 @@ private:
                             {"shown", commands_ != nullptr && commands_->RequestActivateWorkspace(kTreeWorkspaceId)}};
             });
         Add("behaviortree.new",
-            "Create a behavior tree asset under Assets with a single Selector as its root, save it and open it.",
+            "Create a behavior tree asset under Assets, save it and open it. It starts with a single Selector as "
+            "its root, or from a template.",
             EditorOperationKind::Mutation, EditorOperationPermission::ModifyProjectFiles,
-            {{"path", Type::String, true, "Path under Assets, for example Behavior/Guard (the .hbtree is added)."}},
+            {{"path", Type::String, true, "Path under Assets, for example Behavior/Guard (the .hbtree is added)."},
+             {"template", Type::String, false,
+              "empty (default), patrol (patrol and chase) or weighted (weighted moves)."}},
             [this](const Json& parameters) {
                 std::string message{};
-                OpenTree* tree =
-                    editor_->Create(parameters.at("path").get<std::string>(), TreeModel::MakeNew(), message);
+                const TreeTemplate* chosen = FindTreeTemplate(parameters.value("template", std::string("empty")));
+                TreeDocument content{};
+                if (chosen == nullptr || !ParseTreeDocument(chosen->json, content, message)) {
+                    throw Refusal{"NO_TEMPLATE", "Unknown template. Use empty, patrol or weighted."};
+                }
+                OpenTree* tree = editor_->Create(parameters.at("path").get<std::string>(), content, message);
                 if (tree == nullptr) {
                     throw Refusal{"NOT_CREATED", "The tree could not be created: " + message};
                 }

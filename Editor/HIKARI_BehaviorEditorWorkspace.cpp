@@ -1,4 +1,5 @@
 #include "HIKARI_BehaviorEditorWorkspace.h"
+#include "HIKARI_BehaviorEditorTemplates.h"
 
 #include <algorithm>
 #include <cstdio>
@@ -506,10 +507,22 @@ void TreeWorkspace::DrawNewTreeDialog(IEditorWorkspaceUi& ui) {
     ui.Tooltip("Folder under Assets. The last one you used is kept.");
     const std::string folder = std::string(newFolder_);
     const std::string path = (folder.empty() ? std::string{} : folder + "/") + newName_;
+    // 雛形：空の樹か、よく使う形から始める。
+    std::vector<std::string> names{};
+    for (const TreeTemplate& item : TreeTemplates()) {
+        names.push_back(std::string(item.name));
+    }
+    const std::vector<std::string_view> shown(names.begin(), names.end());
+    newTemplate_ = std::clamp(newTemplate_, 0, static_cast<int32_t>(shown.size()) - 1);
+    ui.Combo("newTemplate", "Start From", shown, &newTemplate_);
+    const TreeTemplate& chosen = TreeTemplates()[static_cast<size_t>(newTemplate_)];
+    ui.Tooltip(chosen.description);
     ui.Text(FormatText(ui, "Saved as Assets/{0}.hbtree", {path}));
     if (ui.Button("createTree", "Create") && newName_[0] != '\0') {
         std::string message{};
-        status_ = editor_->Create(path, TreeModel::MakeNew(), message) != nullptr
+        TreeDocument content{};
+        const bool parsed = ParseTreeDocument(chosen.json, content, message);
+        status_ = parsed && editor_->Create(path, content, message) != nullptr
                       ? Message{"Created the tree."}
                       : Message{"Could not create the tree: {0}", {message}};
         ui.CloseCurrentPopup();

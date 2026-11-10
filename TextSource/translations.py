@@ -154,6 +154,14 @@ UI = {
     'Name': ('名字', '名前'), 'Note': ('备注', 'メモ'),
     'Shortcut': ('快捷键', 'ショートカット'),
     'Recently Opened': ('最近打开', '最近開いた'),
+    'Start From': ('从模板开始', 'ひな形'),
+    'Empty': ('空的', '空'), 'Only a Selector as the root.': ('只有一个选择节点作为根。', 'ルートのセレクターだけ。'),
+    'Patrol and Chase': ('巡逻与追击', '巡回と追跡'),
+    'Chases the target while it is set, otherwise walks between pointA and pointB.': (
+        '有目标时追目标，否则在 pointA 和 pointB 之间来回走。', '目標がいれば追い、いなければ pointA と pointB の間を往復します。'),
+    'Weighted Moves': ('按权重选招', '重みで技を選ぶ'),
+    'Picks the move with the highest score; the scores are blackboard variables.': (
+        '选分数最高的招式；分数是黑板变量。', '点数の一番高い手を選びます。点数はブラックボードの変数です。'),
     '{0} nodes of type {1} selected: a change applies to all of them.': (
         '选中了 {0} 个“{1}”节点：改动会同时用到它们全部。', '{1} ノードを {0} 個選択中：変更はすべてに適用されます。'),
     '{0} ({1})': ('{0}（{1}）', '{0}（{1}）'),

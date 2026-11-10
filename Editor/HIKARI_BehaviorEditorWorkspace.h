@@ -107,6 +107,7 @@ private:
     std::string closeAsked_{};
     char newName_[128] = "NewTree";
     char newFolder_[128] = "Behavior";
+    int32_t newTemplate_ = 0;
     bool openNewTree_ = false;
     // 札に出している樹と、樹が札の外で替わった時に札を合わせ直す残りのフレーム。
     std::string shownTab_{};
