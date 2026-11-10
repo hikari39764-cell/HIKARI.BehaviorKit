@@ -50,6 +50,7 @@ struct NodeType {
     Status (*tick)(INodeContext&, void*, void*) noexcept = nullptr;
     void (*stop)(INodeContext&, void*, void*, bool) noexcept = nullptr;
     float (*score)(INodeContext&, void*) noexcept = nullptr;
+    bool (*progress)(INodeContext&, const void*, void*, NodeProgress&) noexcept = nullptr;
     void* user = nullptr;
     const void* owner = nullptr;
 

@@ -111,6 +111,7 @@ bool NodeRegistry::Register(const NodeTypeDesc& desc, const void* owner, std::st
     type->tick = desc.tick;
     type->stop = desc.stop;
     type->score = desc.score;
+    type->progress = desc.progress;
     type->user = desc.user;
     type->owner = owner;
     for (uint32_t index = 0u; index < desc.paramCount; ++index) {

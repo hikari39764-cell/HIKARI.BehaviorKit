@@ -27,7 +27,7 @@ __declspec(dllimport) long long(__stdcall* __stdcall GetProcAddress(HINSTANCE__*
 
 namespace HIKARI::BEHAVIOR {
 
-inline constexpr uint32_t kBehaviorApiVersion = 4u;
+inline constexpr uint32_t kBehaviorApiVersion = 5u;
 inline constexpr wchar_t kBehaviorLibraryName[] = L"HIKARI_BehaviorKit.dll";
 inline constexpr char kBehaviorApiEntryPoint[] = "HIKARI_BehaviorKit_GetApi";
 
@@ -84,6 +84,26 @@ struct ParamDesc {
     const char* choices = nullptr;
 };
 
+// 編集器に出す、節の進み具合（NodeTypeDesc::progress が書く）。
+enum class ProgressUnit : uint8_t {
+    // current / total を数で出す。
+    None,
+    // 秒（「0.8 / 1.5 秒」）。
+    Seconds,
+    // 回（「3 / 5 回目」）。
+    Count,
+};
+
+struct NodeProgress {
+    // 0..1。負なら進み具合を出さない。
+    float fraction = -1.0f;
+    float current = 0.0f;
+    float total = 0.0f;
+    ProgressUnit unit = ProgressUnit::None;
+    // 書けば、編集器は current / total の代わりにこの字（UTF-8）をそのまま出す（ゲームの言語で書く）。
+    char text[48] = {};
+};
+
 // 節が走っている間に使える窓口。参数は宣言した順の番号で読む。
 class INodeContext {
 public:
@@ -131,6 +151,8 @@ protected:
 //   score：親の Selector / Sequence / Parallel の order が utility か random の時、この節の点数として親が読む
 //          （utility は高い順、random は点数に比例した確率で先に来る、0 以下はこの回は外す）。走っていない時にも
 //          呼ばれるので state は渡さず、参数と黒板と World から決める。無ければ 1。
+//   progress：編集器が Play 中に毎フレーム読む進み具合（Wait の経った秒など）。進み具合が無ければ false。
+//          state と参数を読むだけにする（黒板や物体へ書かない、TickChild は Failure）。無くてよい。
 struct NodeTypeDesc {
     uint32_t structSize = sizeof(NodeTypeDesc);
     NodeKind kind = NodeKind::Action;
@@ -147,6 +169,7 @@ struct NodeTypeDesc {
     Status (*tick)(INodeContext& context, void* state, void* user) noexcept = nullptr;
     void (*stop)(INodeContext& context, void* state, void* user, bool aborted) noexcept = nullptr;
     float (*score)(INodeContext& context, void* user) noexcept = nullptr;
+    bool (*progress)(INodeContext& context, const void* state, void* user, NodeProgress& out) noexcept = nullptr;
     void* user = nullptr;
 };
 

@@ -50,6 +50,7 @@ private:
     void DrawLibrary(EDITOR_PROJECT::IEditorWorkspaceUi& ui);
     void AddFromLibrary(OpenTree& tree, const std::string& typeName);
     void DrawDetails(EDITOR_PROJECT::IEditorWorkspaceUi& ui, OpenTree* tree, const RunView& run);
+    void DrawLabelFields(EDITOR_PROJECT::IEditorWorkspaceUi& ui, OpenTree& tree, const DocumentNode& node);
     void DrawBlackboard(EDITOR_PROJECT::IEditorWorkspaceUi& ui, OpenTree& tree, const RunView& run);
     void DrawProblems(EDITOR_PROJECT::IEditorWorkspaceUi& ui, OpenTree* tree);
 
@@ -73,6 +74,8 @@ private:
     void DrawGraph(EDITOR_PROJECT::IEditorWorkspaceUi& ui, OpenTree& tree, const RunView& run);
     void ApplyGraphResult(EDITOR_PROJECT::IEditorWorkspaceUi& ui, OpenTree& tree, const TreeLayout& layout,
                           const EDITOR_PROJECT::EditorNodeGraphResult& result);
+    // Play 中の節の強調：走っている節は濃く、結果は kResultFadeSeconds で薄れる。
+    void UpdateShownStates(const OpenTree& tree, const RunView& run);
     // 拖動中にポインタの横へ出す、離すと何が起きるか（置けない時はその理由）。
     std::string DescribeDrop(EDITOR_PROJECT::IEditorWorkspaceUi& ui, const OpenTree& tree, const DropPlan& plan) const;
 
@@ -95,6 +98,19 @@ private:
         std::string message{};
     };
     DragDrop drop_{};
+    // 節ごとの最後に見た状態と、その状態になってからの秒、出す濃さ。
+    struct ShownState {
+        NodeState state = NodeState::Idle;
+        float age = 0.0f;
+        float strength = 0.0f;
+    };
+    std::unordered_map<uint32_t, ShownState> shownStates_{};
+    const ITreeUser* shownStatesUser_ = nullptr;
+    std::string shownStatesTree_{};
+    // 右の面板の名前と注の入力欄（選んだ節が替わるか、入力していない間は樹から読み直す）。
+    char labelName_[128]{};
+    char labelNote_[512]{};
+    uint32_t labelNode_ = 0u;
     // Play 中、走っている節を画面に入れておく。
     bool followRunning_ = true;
     // 右上の游戏画面を出す（切ると場景を描画しない）。

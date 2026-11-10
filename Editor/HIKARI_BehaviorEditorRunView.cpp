@@ -1,4 +1,6 @@
 #include <algorithm>
+#include <cstdio>
+#include <cstring>
 
 #include "HIKARI/Project/EditorModuleUi.h"
 #include "HIKARI_BehaviorEditorParts.h"
@@ -36,6 +38,26 @@ std::string Activity(const TreeInstance& instance) {
 }
 
 } // namespace
+
+Message DescribeProgress(const NodeProgress& progress) {
+    if (progress.text[0] != '\0') {
+        return {"{0}", {std::string(progress.text, strnlen(progress.text, sizeof(progress.text)))}};
+    }
+    const auto number = [&](float value) {
+        char text[32]{};
+        std::snprintf(text, sizeof(text), progress.unit == ProgressUnit::Count ? "%.0f" : "%.1f",
+                      static_cast<double>(value));
+        return std::string(text);
+    };
+    const std::string current = number(progress.current);
+    const std::string total = number(progress.total);
+    switch (progress.unit) {
+    case ProgressUnit::Seconds: return {"{0} / {1} s", {current, total}};
+    case ProgressUnit::Count: return {"Round {0} / {1}", {current, total}};
+    case ProgressUnit::None: break;
+    }
+    return {"{0} / {1}", {current, total}};
+}
 
 bool RunsTree(const ITreeUser& user, std::string_view guid) {
     const CompiledTree* compiled = user.Instance().Tree();
@@ -113,6 +135,9 @@ RunView InspectRun(const OpenTree& tree, TreeEditor& editor) {
         const auto [entry, first] = view.nodes.try_emplace(id, NodeRun{state, instance.RanInLastTick(index)});
         if (!first && state == NodeState::Running) {
             entry->second.inside = node.type->displayName;
+        }
+        if (first && source == node.sourceTree && !view.user->Progress(index, entry->second.progress)) {
+            entry->second.progress.fraction = -1.0f;
         }
     }
     return view;

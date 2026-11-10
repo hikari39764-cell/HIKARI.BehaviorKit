@@ -691,7 +691,7 @@ void CheckSerialization() {
         {"name": "count", "type": "int", "value": 4}, {"name": "armed", "type": "bool", "value": true}],
         "root": 1, "nodes": [
         {"id": 1, "type": "Selector", "collapsed": true, "params": {"reactive": true}, "children": [3, 2]},
-        {"id": 2, "type": "Wait", "params": {"seconds": 0.3}},
+        {"id": 2, "type": "Wait", "name": "追う前に待つ", "note": "line one\nline two", "params": {"seconds": 0.3}},
         {"id": 3, "type": "MoveToObject", "params": {"target": {"key": "target"}, "speed": 4, "note": "run"}},
         {"id": 9, "type": "Fail"}]})";
     TreeDocument first{};
@@ -713,8 +713,8 @@ void CheckSerialization() {
     for (size_t index = 0u; index < first.nodes.size() && index < second.nodes.size(); ++index) {
         const DocumentNode& a = first.nodes[index];
         const DocumentNode& b = second.nodes[index];
-        CHECK(a.id == b.id && a.type == b.type && a.collapsed == b.collapsed && a.children == b.children &&
-              a.params.size() == b.params.size());
+        CHECK(a.id == b.id && a.type == b.type && a.collapsed == b.collapsed && a.name == b.name && a.note == b.note &&
+              a.children == b.children && a.params.size() == b.params.size());
         for (size_t param = 0u; param < a.params.size() && param < b.params.size(); ++param) {
             const DocumentParam& left = a.params[param];
             const auto right = std::find_if(b.params.begin(), b.params.end(),
@@ -725,6 +725,8 @@ void CheckSerialization() {
                   right->literal.integer == left.literal.integer && right->literal.boolean == left.literal.boolean);
         }
     }
+    CHECK(second.nodes[1].name == "追う前に待つ" && second.nodes[1].note == "line one\nline two" &&
+          second.nodes[0].name.empty());
     // 小数で書いた整数値は小数のまま戻る（Any の参数は書かれた値の型になるので、型が変わると意味が変わる）。
     CHECK(second.nodes[2].params.size() == 3u);
 }
@@ -769,6 +771,10 @@ void CheckEditorModel(const NodeRegistry& registry) {
           model.Connect(registry, inverter, left, kLast, message));
     CHECK(model.Find(inverter)->children == std::vector<uint32_t>({left}) && model.ParentOf(right) == 0u &&
           model.Find(sequence)->children == std::vector<uint32_t>({inverter}));
+    // 名前と注：前後の空白は落とす、同じなら変化なし、空で消える。
+    CHECK(model.SetLabel(left, "  Wait a bit ", "note") && model.Find(left)->name == "Wait a bit" &&
+          !model.SetLabel(left, "Wait a bit", "note") && model.SetLabel(left, "", "") &&
+          model.Find(left)->name.empty());
     // 畳めるのは子のある節だけ。
     CHECK(model.SetCollapsed(inverter, true) && !model.SetCollapsed(inverter, true) &&
           !model.SetCollapsed(right, true) && model.SetCollapsed(inverter, false));
@@ -808,6 +814,29 @@ void CheckEditorModel(const NodeRegistry& registry) {
     CHECK(model.Connect(registry, sequence, left, kLast, message));
     CHECK(reloaded.Load(model.Save(), message) && reloaded.Document().nodes.size() == model.Document().nodes.size() &&
           reloaded.Find(sequence)->children == model.Find(sequence)->children);
+}
+
+// 編集器が Play 中に読む進み具合：Wait の経った秒、Repeat の何回目、TimeLimit の使った時間。
+void CheckProgress(const NodeRegistry& registry) {
+    TreeInstance instance{};
+    instance.Bind(Compile(registry, R"({"formatVersion": 3, "root": 1, "nodes": [
+        {"id": 1, "type": "Repeat", "params": {"count": 3}, "children": [2]},
+        {"id": 2, "type": "TimeLimit", "params": {"seconds": 10}, "children": [3]},
+        {"id": 3, "type": "Wait", "params": {"seconds": 1}}]})"));
+    TickHost host{};
+    NodeProgress progress{};
+    // 走り始める前の TimeLimit は進み具合が無い。
+    CHECK(!instance.Progress(1u, host, progress) && progress.fraction < 0.0f);
+    CHECK(Step(instance, 0.25f) == Status::Running && Step(instance, 0.25f) == Status::Running);
+    CHECK(instance.Progress(2u, host, progress) && progress.unit == ProgressUnit::Seconds && progress.total == 1.0f &&
+          progress.current == 0.5f && progress.fraction == 0.5f);
+    CHECK(instance.Progress(0u, host, progress) && progress.unit == ProgressUnit::Count && progress.current == 1.0f &&
+          progress.total == 3.0f);
+    CHECK(instance.Progress(1u, host, progress) && progress.total == 10.0f && progress.current > 0.4f &&
+          progress.current < 0.6f);
+    // 一回目の Wait が終わると二回目。
+    CHECK(Step(instance, 0.5f) == Status::Running && Step(instance, 0.25f) == Status::Running);
+    CHECK(instance.Progress(0u, host, progress) && progress.current == 2.0f);
 }
 
 // 図の並べ方（位置はファイルに無く、樹の形だけで決まる）と、拖動して離した時の落とし先。
@@ -896,6 +925,7 @@ int main() {
     CheckSerialization();
     CheckEditorModel(registry);
     CheckEditorLayout(registry);
+    CheckProgress(registry);
     // 登記を外すと版が進み、種類は見つからなくなる（編訳済みの樹は作り直しになる）。
     const uint64_t registered = registry.Revision();
     CHECK(registry.Unregister(&trace) == 4u && registry.Revision() != registered &&

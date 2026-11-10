@@ -32,6 +32,8 @@ struct NodeRun {
     bool ticked = false;
     // Subtree の節：埋め込んだ樹の中で今走っている葉の名前。
     std::string inside{};
+    // 進み具合（fraction が負なら無し）。
+    NodeProgress progress{};
 };
 
 // 開いている樹を使っている角色一人（直接でも、Subtree として埋め込んでいても）。
@@ -52,6 +54,9 @@ struct RunView {
     // 載っていない節は Idle。
     std::unordered_map<uint32_t, NodeRun> nodes{};
 };
+
+// 進み具合の文（画面は今の言語、run_state は English()）。節が字を書いていればそれをそのまま。
+Message DescribeProgress(const NodeProgress& progress);
 
 // 黒板の値を画面と run_state に出す文字。物体は user の World での名前。
 std::string ShowValue(const Value& value, const ITreeUser& user);

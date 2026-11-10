@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <string>
+#include <vector>
 
 #include "HIKARI/Project/EditorWorkspace.h"
 #include "HIKARI_BehaviorEditorSession.h"
@@ -11,8 +12,22 @@ namespace HIKARI::BEHAVIOR::EDITING {
 
 // 値を画面に出す文字（節の要約、Play 中の黒板の今の値）。
 std::string FormatValue(const Value& value);
-// 節の題の下に出す、書かれている参数の要約。種類が宣言した順に並べる（知らない参数はその後）。黒板のキーは [名前]。
-std::string SummarizeParams(EDITOR_PROJECT::IEditorWorkspaceUi& ui, const DocumentNode& node, const NodeType* type,
+// 節の図に出す参数の要約。既定値から変えた参数だけを種類が宣言した順に（知らない参数はその後）。
+//   switches：入れた真偽の参数の名前（英文の原文。題の下の小字に並べる）
+//   rows    ：それ以外の参数、kMaxSummaryRows まで（label は英文の原文、value はそのまま出す字、変数を指せば capsule）
+//   more    ：rows に入らなかった数
+inline constexpr size_t kMaxSummaryRows = 3u;
+struct SummaryRow {
+    std::string label{};
+    std::string value{};
+    bool capsule = false;
+};
+struct NodeSummary {
+    std::vector<std::string> switches{};
+    std::vector<SummaryRow> rows{};
+    size_t more = 0u;
+};
+NodeSummary SummarizeParams(EDITOR_PROJECT::IEditorWorkspaceUi& ui, const DocumentNode& node, const NodeType* type,
                             TreeEditor& editor);
 
 // 選んだ節の参数を、種類の宣言どおりの控件で出す。変えた値はその場で tree.model に書き、変えたら true を返す

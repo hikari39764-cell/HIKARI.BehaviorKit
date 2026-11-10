@@ -267,6 +267,26 @@ void TreeWorkspace::AddFromLibrary(OpenTree& tree, const std::string& typeName) 
     Commit(tree);
 }
 
+void TreeWorkspace::DrawLabelFields(IEditorWorkspaceUi& ui, OpenTree& tree, const DocumentNode& node) {
+    const auto copy = [](std::string_view text, char* buffer, size_t capacity) {
+        const size_t length = (std::min)(text.size(), capacity - 1u);
+        std::copy_n(text.data(), length, buffer);
+        buffer[length] = '\0';
+    };
+    if (labelNode_ != node.id || ui.GetInteraction().editing == 0u) {
+        labelNode_ = node.id;
+        copy(node.name, labelName_, sizeof(labelName_));
+        copy(node.note, labelNote_, sizeof(labelNote_));
+    }
+    const bool name = ui.InputText("label.name", "Name", labelName_, sizeof(labelName_));
+    ui.Tooltip("Your own name for this node, shown instead of the type name (F2 on the graph). Not translated.");
+    const bool note = ui.InputTextMultiline("label.note", "Note", labelNote_, sizeof(labelNote_), 48.0f);
+    ui.Tooltip("Shown under the node on the graph (two lines).");
+    if ((name || note) && tree.model.SetLabel(node.id, labelName_, labelNote_)) {
+        tree.pendingCommit = true;
+    }
+}
+
 void TreeWorkspace::DrawDetails(IEditorWorkspaceUi& ui, OpenTree* tree, const RunView& run) {
     if (ui.BeginPanel("details", "Details", nullptr, EditorWorkspaceDockRegion::Right)) {
         if (tree == nullptr) {
@@ -276,6 +296,7 @@ void TreeWorkspace::DrawDetails(IEditorWorkspaceUi& ui, OpenTree* tree, const Ru
             if (node != nullptr) {
                 const NodeType* type = Registry().Find(node->type);
                 ui.Text(type != nullptr ? type->displayName : FormatText(ui, "{0} (unknown node type)", {node->type}));
+                DrawLabelFields(ui, *tree, *node);
                 tree->pendingCommit = DrawNodeParams(ui, *tree, node->id) || tree->pendingCommit;
             } else {
                 ui.Text(tree->selected.size() > 1u

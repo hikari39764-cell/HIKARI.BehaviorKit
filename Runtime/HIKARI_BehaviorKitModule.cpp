@@ -181,6 +181,9 @@ public:
     const std::string& TreeGuid() const noexcept override { return tree_; }
     const TreeInstance& Instance() const noexcept override { return instance_; }
     bool PokeKey(std::string_view name, const Value& value) override { return instance_.SetKey(name, value); }
+    bool Progress(uint32_t node, NodeProgress& out) override {
+        return instance_.Progress(node, TickHost{world_, object_, 0.0f}, out);
+    }
     std::string_view NameOf(GameProjectObjectHandle object) const noexcept override {
         return world_.IsValid() ? world_.FindObject(object).GetName() : std::string_view{};
     }

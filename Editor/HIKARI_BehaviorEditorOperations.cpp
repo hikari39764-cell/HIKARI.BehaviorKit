@@ -406,6 +406,19 @@ private:
                      const bool isRoot = tree.model.SetRoot(id, message) || tree.model.Document().root == id;
                      Require(isRoot, std::move(message));
                  });
+        Mutation("behaviortree.set_name",
+                 "Give a node a name (shown instead of its type name) and a note. Empty text removes it. "
+                 "Leave a field out to keep it.",
+                 {{"node", Type::Integer, true, "Id of the node."},
+                  {"name", Type::String, false, "Name, in any language (not translated)."},
+                  {"note", Type::String, false, "Note shown under the node, two lines at most."},
+                  kTree},
+                 [](OpenTree& tree, const Json& parameters, Json&) {
+                     const DocumentNode& node = NodeOf(tree, parameters, "node");
+                     const std::string name = parameters.value("name", node.name);
+                     const std::string note = parameters.value("note", node.note);
+                     tree.model.SetLabel(node.id, name, note);
+                 });
         Mutation("behaviortree.collapse",
                  "Fold a node's children away in the editor's graph, or unfold them. Running is not affected.",
                  {{"node", Type::Integer, true, "Id of a node that has children."},
@@ -554,10 +567,17 @@ private:
                   Json nodes = Json::array();
                   for (const DocumentNode& node : tree.model.Document().nodes) {
                       if (const auto found = run.nodes.find(node.id); found != run.nodes.end()) {
-                          nodes.push_back({{"node", node.id},
-                                           {"type", node.type},
-                                           {"state", std::string(NodeStateName(found->second.state))},
-                                           {"ticked", found->second.ticked}});
+                          Json entry{{"node", node.id},
+                                     {"type", node.type},
+                                     {"state", std::string(NodeStateName(found->second.state))},
+                                     {"ticked", found->second.ticked}};
+                          if (!node.name.empty()) {
+                              entry["name"] = node.name;
+                          }
+                          if (found->second.progress.fraction >= 0.0f) {
+                              entry["progress"] = DescribeProgress(found->second.progress).English();
+                          }
+                          nodes.push_back(std::move(entry));
                       }
                   }
                   Json blackboard = Json::object();

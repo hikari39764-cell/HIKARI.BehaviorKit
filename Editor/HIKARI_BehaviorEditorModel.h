@@ -60,6 +60,8 @@ public:
     bool Disconnect(uint32_t child);
     // 子を畳む（編集器で見せない）。子の無い節は畳まない。
     bool SetCollapsed(uint32_t id, bool collapsed);
+    // 作り手の付ける名前と注（前後の空白は落とす。空にすると消える）。
+    bool SetLabel(uint32_t id, std::string_view name, std::string_view note);
     bool SetRoot(uint32_t id, std::string& message);
     // 参数を書く（param.name で探して置き換える）。種類が宣言していない名前は断る。
     bool SetParam(const NodeRegistry& registry, uint32_t id, DocumentParam param, std::string& message);

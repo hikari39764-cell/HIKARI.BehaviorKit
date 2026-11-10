@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <string>
 #include <string_view>
 
@@ -15,6 +16,18 @@ Status TickWait(INodeContext& context, void* state, void*) noexcept {
     auto& wait = *static_cast<WaitState*>(state);
     wait.elapsed += context.DeltaSeconds();
     return wait.elapsed >= context.ParamFloat(0u) ? Status::Success : Status::Running;
+}
+
+bool WaitProgress(INodeContext& context, const void* state, void*, NodeProgress& out) noexcept {
+    const float seconds = context.ParamFloat(0u);
+    if (seconds <= 0.0f) {
+        return false;
+    }
+    out.current = (std::min)(static_cast<const WaitState*>(state)->elapsed, seconds);
+    out.total = seconds;
+    out.fraction = out.current / seconds;
+    out.unit = ProgressUnit::Seconds;
+    return true;
 }
 
 // 型を保って移す：数値と真偽は互いに変換し、位置と物体は同じ型同士だけ。
@@ -82,6 +95,7 @@ void RegisterCoreNodes(NodeRegistry& registry) {
     wait.paramCount = 1u;
     wait.stateSize = sizeof(WaitState);
     wait.tick = &TickWait;
+    wait.progress = &WaitProgress;
     registry.Register(wait, &registry, error);
 
     constexpr ParamDesc kSetParams[] = {{"key", ValueType::Any, "Key", 0.0, nullptr, true},

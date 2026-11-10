@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <array>
 #include <cstring>
 #include <iterator>
 #include <utility>
@@ -17,20 +18,34 @@ using namespace HIKARI::EDITOR_PROJECT;
 constexpr EditorNodeGraphMenuItem kNodeActions[] = {{"Set As Root", nullptr}, {"Disconnect From Parent", nullptr}};
 enum : int32_t { kActionSetRoot, kActionDisconnect };
 
-EditorWorkspaceColor TitleColor(const NodeType* type) noexcept {
+// 節の種類ごとの見た目：題の帯の色と、題の左の印（色だけに頼らない）。
+struct KindStyle {
+    EditorWorkspaceColor color{};
+    EditorNodeGraphIcon icon = EditorNodeGraphIcon::None;
+};
+
+KindStyle StyleOf(const NodeType* type) noexcept {
     if (type == nullptr) {
-        return {0.55f, 0.20f, 0.20f, 1.0f};
+        return {{0.55f, 0.20f, 0.20f, 1.0f}, EditorNodeGraphIcon::None};
     }
     if (type->builtin == BuiltinKind::Subtree) {
-        return {0.18f, 0.44f, 0.47f, 1.0f};
+        return {{0.18f, 0.44f, 0.47f, 1.0f}, EditorNodeGraphIcon::Subtree};
+    }
+    if (type->IsDecorator()) {
+        return {{0.42f, 0.30f, 0.55f, 1.0f}, EditorNodeGraphIcon::Decorator};
     }
     if (!type->IsLeaf()) {
-        return type->IsDecorator() ? EditorWorkspaceColor{0.42f, 0.30f, 0.55f, 1.0f}
-                                   : EditorWorkspaceColor{0.24f, 0.36f, 0.52f, 1.0f};
+        return {{0.24f, 0.36f, 0.52f, 1.0f}, EditorNodeGraphIcon::Composite};
     }
-    return type->kind == NodeKind::Condition ? EditorWorkspaceColor{0.55f, 0.44f, 0.16f, 1.0f}
-                                             : EditorWorkspaceColor{0.22f, 0.46f, 0.30f, 1.0f};
+    return type->kind == NodeKind::Condition ? KindStyle{{0.55f, 0.44f, 0.16f, 1.0f}, EditorNodeGraphIcon::Condition}
+                                             : KindStyle{{0.22f, 0.46f, 0.30f, 1.0f}, EditorNodeGraphIcon::Action};
 }
+
+// 節の幅の刻みと上限（図の座標）。はみ出す字は「…」で、全文は説明に出る。
+constexpr float kNodeWidthStep = 40.0f;
+constexpr float kNodeMaxWidth = 280.0f;
+// 結果（成功・失敗・打ち切り）の色が消えるまでの秒。
+constexpr float kResultFadeSeconds = 0.6f;
 
 std::string ClipboardText(IEditorWorkspaceUi& ui) {
     std::string text(ui.GetClipboardText(nullptr, 0u), '\0');
@@ -59,28 +74,28 @@ std::string BadgeOf(IEditorWorkspaceUi& ui, uint32_t id, uint32_t root, const Ru
     return state.empty() ? "Root" : FormatText(ui, "Root | {0}", {ui.Translate(state)});
 }
 
-EditorNodeGraphHighlight HighlightOf(uint32_t id, const std::vector<Problem>& problems, const RunView& run) {
-    if (run.user != nullptr) {
-        switch (RunStateOf(id, run)) {
-        case NodeState::Running:
-        case NodeState::Waiting: return EditorNodeGraphHighlight::Active;
-        case NodeState::Success: return EditorNodeGraphHighlight::Success;
-        case NodeState::Failure: return EditorNodeGraphHighlight::Failure;
-        case NodeState::Aborted: return EditorNodeGraphHighlight::Warning;
-        default: return EditorNodeGraphHighlight::None;
+EditorNodeGraphHighlight HighlightOf(NodeState state) noexcept {
+    switch (state) {
+    case NodeState::Running: return EditorNodeGraphHighlight::Active;
+    case NodeState::Waiting: return EditorNodeGraphHighlight::Waiting;
+    case NodeState::Success: return EditorNodeGraphHighlight::Success;
+    case NodeState::Failure: return EditorNodeGraphHighlight::Failure;
+    case NodeState::Aborted: return EditorNodeGraphHighlight::Aborted;
+    case NodeState::Idle: break;
+    }
+    return EditorNodeGraphHighlight::None;
+}
+
+// 問題の印：誤りがあれば Error、警告だけなら Warning（Play 中も実行の強調とは別に出る）。
+EditorNodeGraphProblem ProblemOf(uint32_t id, const std::vector<Problem>& problems) noexcept {
+    EditorNodeGraphProblem problem = EditorNodeGraphProblem::None;
+    for (const Problem& item : problems) {
+        if (item.nodeId == id) {
+            problem = item.warning && problem != EditorNodeGraphProblem::Error ? EditorNodeGraphProblem::Warning
+                                                                               : EditorNodeGraphProblem::Error;
         }
     }
-    EditorNodeGraphHighlight highlight = EditorNodeGraphHighlight::None;
-    for (const Problem& problem : problems) {
-        if (problem.nodeId != id) {
-            continue;
-        }
-        if (!problem.warning) {
-            return EditorNodeGraphHighlight::Failure;
-        }
-        highlight = EditorNodeGraphHighlight::Warning;
-    }
-    return highlight;
+    return problem;
 }
 
 // 追う節：走っている節のうち、走っている子を持たない一番小さい id（畳んだ下なら、畳んだ節）。
@@ -153,8 +168,14 @@ void TreeWorkspace::DrawGraph(IEditorWorkspaceUi& ui, OpenTree& tree, const RunV
     std::vector<EditorNodeGraphPin> pins(count * 2u);
     std::vector<std::string> details(count);
     std::vector<std::string> badges(count);
+    // 節ごとの字：題、小字、注、説明、進み具合（配列が動かないよう先に数だけ取る）。
+    std::vector<std::array<std::string, 5>> texts(count);
+    std::vector<NodeSummary> summaries(count);
+    std::vector<EditorNodeGraphRow> rows{};
+    rows.reserve(count * (kMaxSummaryRows + 1u));
     std::vector<EditorNodeGraphNode> nodes(count);
     std::vector<EditorNodeGraphLink> links{};
+    UpdateShownStates(tree, run);
     // まだ測っていない節がある間は、測った大きさで並べ直した後にもう一度全体へ視点を合わせる。
     bool measured = true;
     for (size_t index = 0u; index < count; ++index) {
@@ -163,28 +184,82 @@ void TreeWorkspace::DrawGraph(IEditorWorkspaceUi& ui, OpenTree& tree, const RunV
         const NodeType* type = registry.Find(source.type);
         const uint64_t id = source.id;
         measured = measured && tree.sizes.contains(source.id);
-        details[index] = SummarizeParams(ui, source, type, editor);
+        const auto found = run.nodes.find(source.id);
         // 埋め込んだ樹の中で走っている葉（Subtree の節）。
-        if (const auto found = run.nodes.find(source.id); found != run.nodes.end() && !found->second.inside.empty()) {
-            const std::string now = FormatText(ui, "Now: {0}", {ui.Translate(found->second.inside)});
-            details[index] = details[index].empty() ? now : details[index] + "\n" + now.substr(1u);
+        if (found != run.nodes.end() && !found->second.inside.empty()) {
+            details[index] = FormatText(ui, "Now: {0}", {ui.Translate(found->second.inside)});
         }
         badges[index] = BadgeOf(ui, source.id, document.root, run);
+        const std::string typeName = type != nullptr ? std::string(ui.Translate(type->displayName)) : source.type;
+        // 題は付けた名前（無ければ種類の名前）。小字は名前がある時の種類の名前と、入れた切り替え。
+        NodeSummary& summary = summaries[index] = SummarizeParams(ui, source, type, editor);
+        std::array<std::string, 5>& text = texts[index];
+        text[0] = source.name.empty() ? typeName : source.name;
+        std::string subtitle = source.name.empty() ? std::string{} : typeName;
+        for (const std::string& name : summary.switches) {
+            subtitle += (subtitle.empty() ? "" : " \xC2\xB7 ") + std::string(ui.Translate(name));
+        }
+        text[1] = subtitle;
+        text[2] = source.note;
+        std::string tooltip = text[0] + (source.name.empty() ? "" : "  (" + typeName + ")");
+        if (type != nullptr && !type->description.empty()) {
+            tooltip += "\n" + std::string(ui.Translate(type->description));
+        }
+        for (const Problem& problem : problems) {
+            if (problem.nodeId == source.id) {
+                tooltip += "\n" + Show(ui, problem.message).substr(1u);
+            }
+        }
+        text[3] = tooltip;
+        if (found != run.nodes.end() && found->second.progress.fraction >= 0.0f) {
+            text[4] = Show(ui, DescribeProgress(found->second.progress));
+        }
+        const size_t firstRow = rows.size();
+        for (const SummaryRow& row : summary.rows) {
+            rows.push_back({row.label.c_str(), row.value.c_str(), row.capsule ? 1u : 0u, 0u});
+        }
         // 引脚の id：入力（親から）は 節 * 2、出力（子へ）は 節 * 2 + 1。
         pins[index * 2u].id = id * 2u;
         pins[index * 2u + 1u].id = id * 2u + 1u;
+        if (summary.more != 0u) {
+            details[index] += (details[index].empty() ? "" : "\n") +
+                              FormatText(ui, "+{0} more", {std::to_string(summary.more)}).substr(1u);
+            details[index] = Verbatim(details[index]);
+        }
         EditorNodeGraphNode& node = nodes[index];
         node.id = id;
-        node.title = type != nullptr ? type->displayName.c_str() : source.type.c_str();
+        // 字は画面の言語で組んだ物（作り手の名前と注を含む）なので、宿主に引き直させない。
+        for (std::string& item : text) {
+            if (!item.empty() && item.front() != kEditorTextVerbatim) {
+                item = Verbatim(item);
+            }
+        }
+        node.title = text[0].c_str();
+        node.subtitle = text[1].empty() ? nullptr : text[1].c_str();
+        node.note = text[2].empty() ? nullptr : text[2].c_str();
+        node.tooltip = text[3].c_str();
+        node.editName = source.name.c_str();
+        node.rows = rows.size() != firstRow ? rows.data() + firstRow : nullptr;
+        node.rowCount = static_cast<uint32_t>(rows.size() - firstRow);
+        if (found != run.nodes.end() && found->second.progress.fraction >= 0.0f) {
+            node.progress = found->second.progress.fraction;
+            node.progressText = text[4].c_str();
+        }
         node.detail = details[index].empty() ? nullptr : details[index].c_str();
         node.badge = badges[index].empty() ? nullptr : badges[index].c_str();
         node.position = {laid.x, laid.y};
-        node.color = TitleColor(type);
+        const KindStyle style = StyleOf(type);
+        node.color = style.color;
+        node.icon = style.icon;
+        node.problem = ProblemOf(source.id, problems);
         node.inputs = &pins[index * 2u];
         node.inputCount = source.id == document.root ? 0u : 1u;
         node.outputs = &pins[index * 2u + 1u];
         node.outputCount = MaximumChildren(type) != 0u || !source.children.empty() ? 1u : 0u;
-        node.highlight = HighlightOf(source.id, problems, run);
+        if (const auto shown = shownStates_.find(source.id); run.user != nullptr && shown != shownStates_.end()) {
+            node.highlight = HighlightOf(shown->second.state);
+            node.highlightStrength = shown->second.strength;
+        }
         node.order = laid.order;
         if (!source.children.empty()) {
             node.flags |= static_cast<uint32_t>(EditorNodeGraphNodeFlag::Collapsible);
@@ -198,7 +273,8 @@ void TreeWorkspace::DrawGraph(IEditorWorkspaceUi& ui, OpenTree& tree, const RunV
                     return entry.second == source.id && IsRunning(RunStateOf(entry.first, run));
                 });
             if (run.user != nullptr && hiddenRunning) {
-                node.highlight = EditorNodeGraphHighlight::Active;
+                node.highlight = EditorNodeGraphHighlight::Waiting;
+                node.highlightStrength = 1.0f;
             }
             continue;
         }
@@ -210,6 +286,7 @@ void TreeWorkspace::DrawGraph(IEditorWorkspaceUi& ui, OpenTree& tree, const RunV
             link.inputPinId = static_cast<uint64_t>(child) * 2u;
             if (IsRunning(RunStateOf(child, run))) {
                 link.highlight = EditorNodeGraphHighlight::Active;
+                link.flowing = 1u;
             }
             links.push_back(link);
         }
@@ -220,6 +297,8 @@ void TreeWorkspace::DrawGraph(IEditorWorkspaceUi& ui, OpenTree& tree, const RunV
     desc.flow = EditorNodeGraphFlow::TopToBottom;
     desc.linkStyle = EditorNodeGraphLinkStyle::Elbow;
     desc.dragDescendants = 1u;
+    desc.nodeWidthStep = kNodeWidthStep;
+    desc.nodeMaxWidth = kNodeMaxWidth;
     desc.nodes = nodes.data();
     desc.nodeCount = static_cast<uint32_t>(nodes.size());
     desc.links = links.data();
@@ -260,6 +339,34 @@ void TreeWorkspace::DrawGraph(IEditorWorkspaceUi& ui, OpenTree& tree, const RunV
         tree.sizes[layout.nodes[index].id] = {result.nodeSizes[index].x, result.nodeSizes[index].y};
     }
     ApplyGraphResult(ui, tree, layout, result);
+}
+
+void TreeWorkspace::UpdateShownStates(const OpenTree& tree, const RunView& run) {
+    // 見る角色か樹が替わったら最初から。
+    if (run.user != shownStatesUser_ || tree.guid != shownStatesTree_) {
+        shownStates_.clear();
+        shownStatesUser_ = run.user;
+        shownStatesTree_ = tree.guid;
+    }
+    for (auto& [id, shown] : shownStates_) {
+        shown.age += frameSeconds_;
+    }
+    for (const auto& [id, node] : run.nodes) {
+        ShownState& shown = shownStates_[id];
+        // 結果が前と同じなら薄れ続ける（毎回確かめる条件の節が点滅しない）。違う結果か走り始めた時だけ最初から。
+        if (IsRunning(node.state) || shown.state != node.state) {
+            shown.state = node.state;
+            shown.age = 0.0f;
+        }
+    }
+    for (auto& [id, shown] : shownStates_) {
+        shown.strength = IsRunning(shown.state) ? 1.0f : (std::max)(0.0f, 1.0f - shown.age / kResultFadeSeconds);
+        // この回に出てこない走っていた節は、もう走っていない。
+        if (IsRunning(shown.state) && !run.nodes.contains(id)) {
+            shown.state = NodeState::Idle;
+            shown.strength = 0.0f;
+        }
+    }
 }
 
 std::string TreeWorkspace::DescribeDrop(IEditorWorkspaceUi& ui, const OpenTree& tree, const DropPlan& plan) const {
@@ -315,6 +422,11 @@ void TreeWorkspace::ApplyGraphResult(IEditorWorkspaceUi& ui, OpenTree& tree, con
         }
     } else {
         drop_.dragging = false;
+    }
+    if (const DocumentNode* renamed = model.Find(static_cast<uint32_t>(result.renamedNodeId))) {
+        if (model.SetLabel(renamed->id, result.renameText != nullptr ? result.renameText : "", renamed->note)) {
+            Commit(tree);
+        }
     }
     if (const DocumentNode* toggled = model.Find(static_cast<uint32_t>(result.toggledNodeId))) {
         if (model.SetCollapsed(toggled->id, !toggled->collapsed)) {

@@ -198,6 +198,51 @@ private:
     };
 
     void* State(const CompiledNode& node) { return instance_.state_.data() + node.stateOffset; }
+
+public:
+    bool Progress(uint32_t index, NodeProgress& out) {
+        const CompiledNode& node = tree_.nodes[index];
+        Context context(*this, node, true);
+        const bool active = instance_.active_[index] != 0u;
+        const auto seconds = [&](double current, double total) {
+            if (total <= 0.0) {
+                return false;
+            }
+            out.current = static_cast<float>(std::clamp(current, 0.0, total));
+            out.total = static_cast<float>(total);
+            out.fraction = out.current / out.total;
+            out.unit = ProgressUnit::Seconds;
+            return true;
+        };
+        switch (node.type->builtin) {
+        case BuiltinKind::None:
+            return node.type->progress != nullptr && node.type->progress(context, State(node), node.type->user, out);
+        case BuiltinKind::Repeat: {
+            const int64_t count = context.ParamInt(0u);
+            if (!active || count <= 0) {
+                return false;
+            }
+            out.current = static_cast<float>(StateAs<uint32_t>(node) + 1u);
+            out.total = static_cast<float>(count);
+            out.fraction = (out.current - 1.0f) / out.total;
+            out.unit = ProgressUnit::Count;
+            return true;
+        }
+        case BuiltinKind::Cooldown: {
+            // 子が終わってから次に走れるまで。
+            const double limit = static_cast<double>(context.ParamFloat(0u));
+            const double left = StateAs<double>(node) - instance_.time_;
+            return !active && left > 0.0 && seconds(limit - left, limit);
+        }
+        case BuiltinKind::TimeLimit: {
+            const double limit = static_cast<double>(context.ParamFloat(0u));
+            return active && seconds(limit - (StateAs<double>(node) - instance_.time_), limit);
+        }
+        default: return false;
+        }
+    }
+
+private:
     template <class T>
     T& StateAs(const CompiledNode& node) {
         return *reinterpret_cast<T*>(State(node));
@@ -534,6 +579,11 @@ void TreeInstance::Abort(const TickHost& host) {
     if (tree_ != nullptr && !tree_->nodes.empty()) {
         TreeRunner(*this, host).Abort(0u);
     }
+}
+
+bool TreeInstance::Progress(uint32_t node, const TickHost& host, NodeProgress& out) {
+    out = {};
+    return tree_ != nullptr && node < tree_->nodes.size() && TreeRunner(*this, host).Progress(node, out);
 }
 
 bool TreeInstance::SetKey(std::string_view name, const Value& value) {

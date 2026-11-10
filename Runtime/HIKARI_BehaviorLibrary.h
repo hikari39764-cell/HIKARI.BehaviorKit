@@ -31,6 +31,8 @@ public:
     virtual std::string_view NameOf(GameProjectObjectHandle object) const noexcept = 0;
     // 編集器から、この角色の今の黒板の値を一つ書き換える（樹には書かない、次の Play では元に戻る）。
     virtual bool PokeKey(std::string_view name, const Value& value) = 0;
+    // 編訳済みの樹の node 番目の節の進み具合（TreeInstance::Progress を持ち主の World で）。
+    virtual bool Progress(uint32_t node, NodeProgress& out) = 0;
 
 protected:
     ~ITreeUser() = default;

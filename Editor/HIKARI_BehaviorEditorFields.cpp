@@ -261,42 +261,66 @@ std::string FormatValue(const Value& value) {
     }
 }
 
-std::string SummarizeParams(IEditorWorkspaceUi& ui, const DocumentNode& node, const NodeType* type,
+NodeSummary SummarizeParams(IEditorWorkspaceUi& ui, const DocumentNode& node, const NodeType* type,
                             TreeEditor& editor) {
-    // 参数の名前と固定の選択肢は今の言語、値・変数の名前・資産の名前はそのまま。
-    std::string detail{};
-    const auto add = [&](const DocumentParam& param, const std::string& label) {
-        if (!detail.empty()) {
-            detail += '\n';
+    NodeSummary summary{};
+    // 固定の選択肢は今の言語、値・変数の名前・資産の名前はそのまま。
+    const auto add = [&](const DocumentParam& param, const ParamSpec* spec, const std::string& label) {
+        // 真偽と宣言された参数だけが切り替え（Any に入れた true / false は値として行に出す）。
+        if (spec != nullptr && spec->type == ValueType::Bool && !param.isKey && !param.isText) {
+            if (param.literal.boolean) {
+                summary.switches.push_back(label);
+            }
+            return;
         }
-        detail += std::string(ui.Translate(label)) + ": ";
+        if (summary.rows.size() == kMaxSummaryRows) {
+            ++summary.more;
+            return;
+        }
+        SummaryRow row{label, {}, param.isKey};
         if (param.isKey) {
-            detail += "[" + param.key + "]";
+            row.value = param.key;
         } else if (param.isText) {
             const bool subtree = type != nullptr && type->builtin == BuiltinKind::Subtree;
-            const ParamSpec* spec = FindSpec(type, param.name);
-            detail += subtree                                     ? editor.AssetName(param.text)
-                      : spec != nullptr && !spec->choices.empty() ? std::string(ui.Translate(param.text))
-                                                                  : param.text;
+            row.value = subtree                                     ? editor.AssetName(param.text)
+                        : spec != nullptr && !spec->choices.empty() ? std::string(ui.Translate(param.text))
+                                                                    : param.text;
         } else {
-            detail += FormatValue(param.literal);
+            row.value = FormatValue(param.literal);
+        }
+        row.value = Verbatim(row.value);
+        summary.rows.push_back(std::move(row));
+    };
+    // 既定値のまま書かれた参数は「変えていない」。
+    const auto isDefault = [](const DocumentParam& param, const ParamSpec& spec) {
+        if (param.isKey) {
+            return false;
+        }
+        if (param.isText) {
+            return param.text == spec.defaultText;
+        }
+        switch (param.literal.type) {
+        case ValueType::Bool: return param.literal.boolean == (spec.defaultNumber != 0.0);
+        case ValueType::Int: return static_cast<double>(param.literal.integer) == spec.defaultNumber;
+        case ValueType::Float: return static_cast<double>(param.literal.number) == spec.defaultNumber;
+        default: return false;
         }
     };
     if (type != nullptr) {
         for (const ParamSpec& spec : type->params) {
             const auto written = std::find_if(node.params.begin(), node.params.end(),
                                               [&](const DocumentParam& param) { return param.name == spec.name; });
-            if (written != node.params.end()) {
-                add(*written, spec.label);
+            if (written != node.params.end() && !isDefault(*written, spec)) {
+                add(*written, &spec, spec.label);
             }
         }
     }
     for (const DocumentParam& param : node.params) {
         if (FindSpec(type, param.name) == nullptr) {
-            add(param, param.name);
+            add(param, nullptr, param.name);
         }
     }
-    return detail.empty() ? detail : Verbatim(detail);
+    return summary;
 }
 
 bool DrawNodeParams(IEditorWorkspaceUi& ui, OpenTree& tree, uint32_t nodeId) {

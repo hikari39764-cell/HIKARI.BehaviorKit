@@ -135,6 +135,9 @@ public:
     }
     // 割り当ててから一度でも進めた。
     bool HasStarted() const noexcept { return tick_ != 0u; }
+    // 編集器の表示用：節の進み具合（Wait の経った秒、Repeat の回数、Cooldown と TimeLimit の時間）。無ければ false。
+    // host は節の progress に渡す World と持ち主（時間は進めない）。
+    bool Progress(uint32_t node, const TickHost& host, NodeProgress& out);
 
 private:
     friend class TreeRunner;

@@ -164,6 +164,27 @@ bool TreeModel::Disconnect(uint32_t child) {
     return changed;
 }
 
+bool TreeModel::SetLabel(uint32_t id, std::string_view name, std::string_view note) {
+    DocumentNode* node = FindMutable(id);
+    const auto trim = [](std::string_view text) {
+        const size_t first = text.find_first_not_of(" \t\r\n");
+        return first == std::string_view::npos
+                   ? std::string{}
+                   : std::string(text.substr(first, text.find_last_not_of(" \t\r\n") - first + 1u));
+    };
+    if (node == nullptr) {
+        return false;
+    }
+    std::string cleanName = trim(name);
+    std::string cleanNote = trim(note);
+    if (node->name == cleanName && node->note == cleanNote) {
+        return false;
+    }
+    node->name = std::move(cleanName);
+    node->note = std::move(cleanNote);
+    return true;
+}
+
 bool TreeModel::SetRoot(uint32_t id, std::string& message) {
     if (Find(id) == nullptr) {
         message = "The node does not exist.";
