@@ -41,6 +41,15 @@ struct CompiledKey {
     Value initial{};
 };
 
+// 埋め込んだ樹（Subtree の節が指した資産）と、それを埋め込んだ節。
+struct EmbeddedTree {
+    // "tree" に書かれた値（資産の GUID）。
+    std::string reference{};
+    // 埋め込んだ Subtree の節：どの樹の（0 が元の樹、1 以降は subtrees の番号 + 1）、どの id の節か。
+    uint16_t parentTree = 0u;
+    uint32_t parentNode = 0u;
+};
+
 struct CompiledTree {
     // nodes[0] が根。親が子より前に来る。
     std::vector<CompiledNode> nodes{};
@@ -48,14 +57,14 @@ struct CompiledTree {
     std::vector<CompiledParam> params{};
     std::string text{};
     std::vector<CompiledKey> keys{};
-    // 埋め込んだ樹の参照名（sourceTree の番号 - 1 で引く）。
-    std::vector<std::string> subtrees{};
+    // 埋め込んだ樹（sourceTree の番号 - 1 で引く）。
+    std::vector<EmbeddedTree> subtrees{};
     uint32_t stateBytes = 0u;
     // 編訳した時の NodeRegistry::Revision()。違っていたら節の種類を指す先が古い。
     uint64_t registryRevision = 0u;
 };
 
-// Subtree の節が指す樹を読む。reference は樹のファイルに書かれた名前そのまま。
+// Subtree の節が指す樹を読む。reference は "tree" に書かれた値そのまま（資産の GUID）。
 using LoadSubtreeFn = std::function<bool(std::string_view reference, TreeDocument& out, std::string& error)>;
 
 // 節の種類、子の数、参数の名前と型、黒板のキーを確かめて詰める。誤りは「node 12 (MoveTo): …」の形の理由。
@@ -89,8 +98,11 @@ public:
     bool SetKey(std::string_view name, const Value& value);
     bool GetKey(std::string_view name, Value& out) const;
 
-    // 編集器の表示用：節ごとの「今走っているか」と、最後に返した結果。
+    // 編集器の表示用：節ごとの「今走っているか」「一番新しい Tick で進められたか」と、最後に返した結果。
     bool IsNodeRunning(uint32_t node) const noexcept { return node < active_.size() && active_[node] != 0u; }
+    bool RanInLastTick(uint32_t node) const noexcept {
+        return tick_ != 0u && node < lastTick_.size() && lastTick_[node] == tick_;
+    }
     Status LastStatus(uint32_t node) const noexcept {
         return node < lastStatus_.size() ? static_cast<Status>(lastStatus_[node]) : Status::Failure;
     }
@@ -102,6 +114,9 @@ private:
     std::vector<uint8_t> state_{};
     std::vector<uint8_t> active_{};
     std::vector<uint8_t> lastStatus_{};
+    // 節が最後に進められた Tick の番号（tick_ と同じなら一番新しい Tick）。
+    std::vector<uint32_t> lastTick_{};
+    uint32_t tick_ = 0u;
     std::vector<Value> blackboard_{};
     // この実例が進んだ時間の合計（Cooldown と TimeLimit の時計）。
     double time_ = 0.0;

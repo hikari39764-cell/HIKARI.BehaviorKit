@@ -1,20 +1,30 @@
 #pragma once
 
+#include <chrono>
 #include <cstdint>
 #include <memory>
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 #include "HIKARI_BehaviorTree.h"
 
 namespace HIKARI::BEHAVIOR {
 
+// 清単（HIKARI.BehaviorKit.hmodule）の assetTypes に登記した、行動樹の資産の種類。
+inline constexpr std::string_view kTreeAssetType = "HIKARI.BehaviorKit.Tree";
+
 // 樹を走らせている側（行動樹の部品）。節の種類が外される前に、走っている樹を止めてもらう。
+// 後ろの四つは編集器の表示用：どの物体が、どの樹を、今どこまで進めているか。
 class ITreeUser {
 public:
     virtual void ResetTree() = 0;
+    virtual GameProjectObjectHandle OwnerHandle() const noexcept = 0;
+    virtual std::string_view OwnerName() const noexcept = 0;
+    virtual const std::string& TreeGuid() const noexcept = 0;
+    virtual const TreeInstance& Instance() const noexcept = 0;
 
 protected:
     ~ITreeUser() = default;
@@ -28,13 +38,15 @@ public:
 
     const NodeRegistry& Registry() const noexcept { return registry_; }
 
-    // 樹のファイル（項目の Data フォルダからの相対路径）を読んで編訳する。同じ樹は共有する。
-    // 読めない・編訳できない時は nullptr と理由（理由は LastError にも残る）。
-    // 置き場は World ごと：Play を始める度にファイルを読み直す。
-    std::shared_ptr<const CompiledTree> Acquire(const WorldView& world, std::string_view path, std::string& error);
+    // 樹の資産（GUID）を読んで編訳する。同じ樹は共有する。読めない・編訳できない時は nullptr と理由
+    // （理由は引擎のログにも一度出る）。資産や埋め込んだ樹の中身、節の種類が変わっていれば作り直すので、
+    // 毎回呼んで、返った樹が前と違えば持ち替える。置き場は World ごと。
+    std::shared_ptr<const CompiledTree> Acquire(const WorldView& world, const std::string& treeGuid,
+                                                std::string& error);
 
     void AddUser(ITreeUser& user);
     void RemoveUser(ITreeUser& user);
+    const std::vector<ITreeUser*>& Users() const noexcept { return users_; }
 
     // 公開の窓口（BehaviorApi）の中身。
     bool RegisterNodeType(const NodeTypeDesc& desc, const void* owner);
@@ -50,7 +62,13 @@ private:
         std::shared_ptr<const CompiledTree> tree{};
         std::string error{};
         uint64_t registryRevision = 0u;
+        // この樹と、埋め込んだ樹の、編訳した時の内容の版（資産の GUID と ProjectDataView の版）。
+        std::vector<std::pair<std::string, uint64_t>> sources{};
+        std::chrono::steady_clock::time_point checked{};
     };
+
+    bool IsCurrent(const WorldView& world, Entry& entry) const;
+    void Build(const WorldView& world, const std::string& treeGuid, Entry& entry);
 
     NodeRegistry registry_{};
     std::unordered_map<std::string, Entry> trees_{};

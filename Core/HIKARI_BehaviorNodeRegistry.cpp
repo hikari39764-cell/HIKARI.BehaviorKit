@@ -8,6 +8,18 @@ namespace {
 
 std::string TextOrEmpty(const char* text) { return text != nullptr ? std::string(text) : std::string{}; }
 
+// "all|any" を一つずつに分ける。
+std::vector<std::string> SplitChoices(const char* text) {
+    std::vector<std::string> choices{};
+    std::string_view rest = text != nullptr ? std::string_view(text) : std::string_view{};
+    while (!rest.empty()) {
+        const size_t end = rest.find('|');
+        choices.emplace_back(rest.substr(0u, end));
+        rest = end == std::string_view::npos ? std::string_view{} : rest.substr(end + 1u);
+    }
+    return choices;
+}
+
 } // namespace
 
 NodeRegistry::NodeRegistry() {
@@ -23,7 +35,7 @@ NodeRegistry::NodeRegistry() {
     AddBuiltin("Parallel", "Parallel",
                "Runs all children together. Policy \"all\": succeeds when all succeed, fails when one fails. "
                "Policy \"any\": succeeds when one succeeds, fails when all fail.",
-               BuiltinKind::Parallel, {{"policy", ValueType::Text, "Policy", 0.0, "all", false}});
+               BuiltinKind::Parallel, {{"policy", ValueType::Text, "Policy", 0.0, "all", false, {"all", "any"}}});
     AddBuiltin("Inverter", "Inverter", "Turns its child's success into failure and failure into success.",
                BuiltinKind::Inverter, {});
     AddBuiltin("ForceSuccess", "Force Success", "Succeeds when its child finishes, whatever the result.",
@@ -38,7 +50,7 @@ NodeRegistry::NodeRegistry() {
     AddBuiltin("TimeLimit", "Time Limit", "Stops its child and fails when the child runs longer than Seconds.",
                BuiltinKind::TimeLimit, {{"seconds", ValueType::Float, "Seconds", 1.0, {}, false}});
     AddBuiltin("Subtree", "Subtree",
-               "Runs another tree file in place of this node. Blackboard keys with the same name are shared.",
+               "Runs another tree asset in place of this node. Blackboard keys with the same name are shared.",
                BuiltinKind::Subtree, {{"tree", ValueType::Text, "Tree", 0.0, {}, false}});
     RegisterCoreNodes(*this);
 }
@@ -98,8 +110,18 @@ bool NodeRegistry::Register(const NodeTypeDesc& desc, const void* owner, std::st
             error = "node type \"" + name + "\": output parameter \"" + param.name + "\" cannot be text";
             return false;
         }
-        type->params.push_back({param.name, param.type, param.label != nullptr ? param.label : param.name,
-                                param.defaultNumber, TextOrEmpty(param.defaultText), param.output});
+        ParamSpec spec{param.name,          param.type,
+                       param.label != nullptr ? param.label : param.name,
+                       param.defaultNumber, TextOrEmpty(param.defaultText),
+                       param.output,        SplitChoices(param.choices)};
+        if (!spec.choices.empty() &&
+            (param.type != ValueType::Text ||
+             std::find(spec.choices.begin(), spec.choices.end(), spec.defaultText) == spec.choices.end())) {
+            error = "node type \"" + name + "\": parameter \"" + param.name +
+                    "\" lists choices, so it must be text and its default must be one of them";
+            return false;
+        }
+        type->params.push_back(std::move(spec));
     }
     types_.push_back(std::move(type));
     ++revision_;

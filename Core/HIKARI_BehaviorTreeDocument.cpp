@@ -1,6 +1,8 @@
 #include "HIKARI_BehaviorTreeDocument.h"
 
+#include <charconv>
 #include <set>
+#include <utility>
 
 #include <json.hpp>
 
@@ -8,6 +10,35 @@ namespace HIKARI::BEHAVIOR {
 namespace {
 
 using Json = nlohmann::json;
+// 書く時はキーの順を保つ（差分が読みやすい）。
+using OrderedJson = nlohmann::ordered_json;
+
+constexpr std::pair<std::string_view, ValueType> kBlackboardTypes[] = {{"bool", ValueType::Bool},
+                                                                       {"int", ValueType::Int},
+                                                                       {"float", ValueType::Float},
+                                                                       {"vec3", ValueType::Vec3},
+                                                                       {"object", ValueType::Object}};
+
+// float を「読み戻すと同じ float になる一番短い小数」で書く（0.3f が 0.30000001192092896 にならない）。
+double ShortestDouble(float value) {
+    char buffer[32]{};
+    const auto written = std::to_chars(buffer, buffer + sizeof(buffer), value);
+    double result = static_cast<double>(value);
+    std::from_chars(buffer, written.ptr, result);
+    return result;
+}
+
+OrderedJson WriteLiteral(const Value& value) {
+    switch (value.type) {
+    case ValueType::Bool: return value.boolean;
+    case ValueType::Int: return value.integer;
+    case ValueType::Float: return ShortestDouble(value.number);
+    case ValueType::Vec3:
+        return OrderedJson::array(
+            {ShortestDouble(value.vector.x), ShortestDouble(value.vector.y), ShortestDouble(value.vector.z)});
+    default: return nullptr;
+    }
+}
 
 bool ReadVector(const Json& json, GameProjectFloat3& out) {
     if (!json.is_array() || json.size() != 3u || !json[0].is_number() || !json[1].is_number() || !json[2].is_number()) {
@@ -46,13 +77,8 @@ bool ReadKey(const Json& json, DocumentKey& out, std::string& error) {
     }
     out.name = json["name"].get<std::string>();
     const std::string type = json["type"].get<std::string>();
-    constexpr std::pair<std::string_view, ValueType> kTypes[] = {{"bool", ValueType::Bool},
-                                                                 {"int", ValueType::Int},
-                                                                 {"float", ValueType::Float},
-                                                                 {"vec3", ValueType::Vec3},
-                                                                 {"object", ValueType::Object}};
     bool known = false;
-    for (const auto& [name, valueType] : kTypes) {
+    for (const auto& [name, valueType] : kBlackboardTypes) {
         if (type == name) {
             out.value.type = valueType;
             known = true;
@@ -105,6 +131,12 @@ bool ReadNode(const Json& json, DocumentNode& out, std::string& error) {
     if (out.id == 0u || out.type.empty()) {
         error = where + ": the id must be positive and the type must not be empty";
         return false;
+    }
+    if (const auto x = json.find("x"); x != json.end() && x->is_number()) {
+        out.x = x->get<float>();
+    }
+    if (const auto y = json.find("y"); y != json.end() && y->is_number()) {
+        out.y = y->get<float>();
     }
     if (const auto children = json.find("children"); children != json.end()) {
         if (!children->is_array()) {
@@ -192,6 +224,67 @@ bool ParseTreeDocument(std::string_view jsonText, TreeDocument& out, std::string
     document.root = root["root"].get<uint32_t>();
     out = std::move(document);
     return true;
+}
+
+bool ParseParamValue(std::string_view name, std::string_view jsonText, DocumentParam& out) {
+    const Json json = Json::parse(jsonText.begin(), jsonText.end(), nullptr, false);
+    return !json.is_discarded() && ReadParam(std::string(name), json, out);
+}
+
+bool ParseBlackboardKey(std::string_view jsonText, DocumentKey& out, std::string& error) {
+    const Json json = Json::parse(jsonText.begin(), jsonText.end(), nullptr, false);
+    return ReadKey(json, out, error);
+}
+
+std::string_view BlackboardTypeName(ValueType type) noexcept {
+    for (const auto& [name, valueType] : kBlackboardTypes) {
+        if (valueType == type) {
+            return name;
+        }
+    }
+    return {};
+}
+
+std::string SerializeTreeDocument(const TreeDocument& document) {
+    OrderedJson root = OrderedJson::object();
+    root["formatVersion"] = kTreeFormatVersion;
+    root["blackboard"] = OrderedJson::array();
+    for (const DocumentKey& key : document.blackboard) {
+        OrderedJson entry = OrderedJson::object();
+        entry["name"] = key.name;
+        entry["type"] = BlackboardTypeName(key.value.type);
+        if (key.value.type != ValueType::Object) {
+            entry["value"] = WriteLiteral(key.value);
+        }
+        root["blackboard"].push_back(std::move(entry));
+    }
+    root["root"] = document.root;
+    root["nodes"] = OrderedJson::array();
+    for (const DocumentNode& node : document.nodes) {
+        OrderedJson entry = OrderedJson::object();
+        entry["id"] = node.id;
+        entry["type"] = node.type;
+        entry["x"] = ShortestDouble(node.x);
+        entry["y"] = ShortestDouble(node.y);
+        if (!node.params.empty()) {
+            OrderedJson params = OrderedJson::object();
+            for (const DocumentParam& param : node.params) {
+                if (param.isKey) {
+                    params[param.name] = OrderedJson{{"key", param.key}};
+                } else if (param.isText) {
+                    params[param.name] = param.text;
+                } else {
+                    params[param.name] = WriteLiteral(param.literal);
+                }
+            }
+            entry["params"] = std::move(params);
+        }
+        if (!node.children.empty()) {
+            entry["children"] = node.children;
+        }
+        root["nodes"].push_back(std::move(entry));
+    }
+    return root.dump(2);
 }
 
 } // namespace HIKARI::BEHAVIOR

@@ -23,6 +23,7 @@ public:
         default: status = TickDecorator(index); break;
         }
         instance_.lastStatus_[index] = static_cast<uint8_t>(status);
+        instance_.lastTick_[index] = instance_.tick_;
         return status;
     }
 
@@ -317,6 +318,8 @@ void TreeInstance::Bind(std::shared_ptr<const CompiledTree> tree) {
     state_.clear();
     active_.clear();
     lastStatus_.clear();
+    lastTick_.clear();
+    tick_ = 0u;
     blackboard_.clear();
     time_ = 0.0;
     if (tree_ == nullptr) {
@@ -325,6 +328,7 @@ void TreeInstance::Bind(std::shared_ptr<const CompiledTree> tree) {
     state_.assign(tree_->stateBytes, 0u);
     active_.assign(tree_->nodes.size(), 0u);
     lastStatus_.assign(tree_->nodes.size(), static_cast<uint8_t>(Status::Failure));
+    lastTick_.assign(tree_->nodes.size(), 0u);
     blackboard_.reserve(tree_->keys.size());
     for (const CompiledKey& key : tree_->keys) {
         blackboard_.push_back(key.initial);
@@ -336,6 +340,8 @@ Status TreeInstance::Tick(const TickHost& host) {
         return Status::Failure;
     }
     time_ += static_cast<double>(host.deltaSeconds);
+    // 0 は「まだ一度も進めていない」の印なので飛ばす。
+    tick_ = tick_ == UINT32_MAX ? 1u : tick_ + 1u;
     return TreeRunner(*this, host).Tick(0u);
 }
 

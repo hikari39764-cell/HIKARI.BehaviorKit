@@ -27,7 +27,7 @@ __declspec(dllimport) long long(__stdcall* __stdcall GetProcAddress(HINSTANCE__*
 
 namespace HIKARI::BEHAVIOR {
 
-inline constexpr uint32_t kBehaviorApiVersion = 1u;
+inline constexpr uint32_t kBehaviorApiVersion = 2u;
 inline constexpr wchar_t kBehaviorLibraryName[] = L"HIKARI_BehaviorKit.dll";
 inline constexpr char kBehaviorApiEntryPoint[] = "HIKARI_BehaviorKit_GetApi";
 
@@ -65,6 +65,9 @@ struct ParamDesc {
     const char* defaultText = nullptr;
     // 結果を書く先：樹のファイルは {"key": "黒板のキー"} を書かなければならない。
     bool output = false;
+    // Text の参数が取れる値を "|" で区切って書く（"all|any"）。編集器は選択式で出し、樹の編訳はそれ以外の値を断る。
+    // 無ければ自由な文字。既定値（defaultText）も選択肢の一つであること。
+    const char* choices = nullptr;
 };
 
 // 節が走っている間に使える窓口。参数は宣言した順の番号で読む。

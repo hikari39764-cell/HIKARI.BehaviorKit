@@ -82,8 +82,8 @@ void ApplyInitialValues(TreeInstance& instance, std::string_view text, std::stri
     }
 }
 
-// 物体に行動樹を持たせる部品。樹は項目の Data フォルダのファイルで、同じ樹を使う部品は編訳済みの樹を共有する。
-// Play の間だけ、引擎が呼ぶ毎フレームの更新で樹を進める。
+// 物体に行動樹を持たせる部品。樹は項目の資産（.hbtree）で、同じ樹を使う部品は編訳済みの樹を共有する。
+// Play の間だけ、引擎が呼ぶ毎フレームの更新で樹を進める。資産を保存し直すと、走っている途中でも新しい樹に替わる。
 class BehaviorTreeComponent final : public IGameComponent, public ITreeUser {
 public:
     void OnAttach(GameComponentContext& context) override {
@@ -98,7 +98,7 @@ public:
     }
 
     void DescribeProperties(PropertyFields& fields) override {
-        bool changed = fields.Text("tree", "Tree", tree_);
+        bool changed = fields.ModuleAsset("tree", "Tree", kTreeAssetType, tree_);
         fields.Bool("enabled", "Enabled", enabled_);
         fields.Float("interval", "Update Interval", interval_, 0.0f, 10.0f, 0.01f);
         changed = fields.Text("values", "Initial Values", values_) || changed;
@@ -119,12 +119,7 @@ public:
             ResetTree();
             return;
         }
-        BehaviorLibrary& library = BehaviorLibrary::Get();
-        // 節の種類が増減したら、樹を編訳し直して最初から。
-        if (instance_.IsBound() && instance_.Tree()->registryRevision != library.Registry().Revision()) {
-            ResetTree();
-        }
-        if (!instance_.IsBound() && !Bind(library)) {
+        if (!SyncTree()) {
             return;
         }
         elapsed_ += deltaTime;
@@ -150,22 +145,31 @@ public:
         elapsed_ = 0.0f;
     }
 
+    GameProjectObjectHandle OwnerHandle() const noexcept override { return object_.GetHandle(); }
+    std::string_view OwnerName() const noexcept override { return object_.GetName(); }
+    const std::string& TreeGuid() const noexcept override { return tree_; }
+    const TreeInstance& Instance() const noexcept override { return instance_; }
+
 private:
-    bool Bind(BehaviorLibrary& library) {
+    // 置き場の今の樹に合わせる。樹が替わっていたら（資産を保存し直した、節の種類が増減した）、走っている節を
+    // 打ち切って新しい樹で最初から。走らせる樹が無ければ false。
+    bool SyncTree() {
+        BehaviorLibrary& library = BehaviorLibrary::Get();
         std::string error{};
         std::shared_ptr<const CompiledTree> tree = library.Acquire(world_, tree_, error);
-        if (tree != nullptr) {
-            instance_.Bind(std::move(tree));
-            ApplyInitialValues(instance_, values_, error);
-            if (!error.empty()) {
-                error = "Data/" + tree_ + ": " + error;
+        if (tree.get() != instance_.Tree()) {
+            ResetTree();
+            if (tree != nullptr) {
+                instance_.Bind(std::move(tree));
+                std::string valueError{};
+                ApplyInitialValues(instance_, values_, valueError);
+                // 樹そのものの誤りは置き場が知らせる。ここで知らせるのは、この部品の初期値の誤りだけ。
+                if (!valueError.empty() && valueError != reportedError_) {
+                    library.ReportError("behavior tree " + tree_ + ": " + valueError);
+                }
+                reportedError_ = std::move(valueError);
             }
         }
-        // 同じ誤りは一度だけ知らせる（樹が読めない間、毎フレームここへ来る）。
-        if (!error.empty() && error != reportedError_) {
-            library.ReportError(error);
-        }
-        reportedError_ = std::move(error);
         return instance_.IsBound();
     }
 
@@ -193,7 +197,7 @@ public:
             {.typeName = kTreeComponentType,
              .displayName = "Behavior Tree",
              .category = "Behavior",
-             .description = "Runs a behavior tree file from the project's Data folder on this object during Play."});
+             .description = "Runs a behavior tree asset on this object during Play."});
     }
 };
 

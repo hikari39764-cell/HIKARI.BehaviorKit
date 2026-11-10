@@ -89,7 +89,8 @@ void RegisterCoreNodes(NodeRegistry& registry) {
     registry.Register(set, &registry, error);
 
     constexpr ParamDesc kCheckParams[] = {{"value", ValueType::Any, "Value", 0.0},
-                                          {"op", ValueType::Text, "Compare", 0.0, "set"},
+                                          {"op", ValueType::Text, "Compare", 0.0, "set", false,
+                                           "set|==|!=|<|<=|>|>="},
                                           {"other", ValueType::Any, "Other", 0.0}};
     NodeTypeDesc check{};
     check.kind = NodeKind::Condition;

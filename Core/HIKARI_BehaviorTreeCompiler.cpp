@@ -76,7 +76,7 @@ private:
             return false;
         }
         if (type->builtin == BuiltinKind::Subtree) {
-            return EmitSubtree(node, outIndex, error);
+            return EmitSubtree(node, sourceTree, outIndex, error);
         }
         if (out_.nodes.size() >= kMaximumNodes) {
             error = "the tree has too many nodes";
@@ -113,11 +113,11 @@ private:
         return true;
     }
 
-    bool EmitSubtree(const DocumentNode& node, uint32_t& outIndex, std::string& error) {
+    bool EmitSubtree(const DocumentNode& node, uint16_t sourceTree, uint32_t& outIndex, std::string& error) {
         const auto param = std::find_if(node.params.begin(), node.params.end(),
                                         [](const DocumentParam& item) { return item.name == "tree"; });
         if (param == node.params.end() || !param->isText || param->text.empty() || node.params.size() != 1u) {
-            error = Where(node) + ": needs one parameter, \"tree\", naming the tree file";
+            error = Where(node) + ": needs one parameter, \"tree\", the tree asset to embed";
             return false;
         }
         const std::string& reference = param->text;
@@ -135,7 +135,7 @@ private:
             error = Where(node) + ": subtree \"" + reference + "\": " + loadError;
             return false;
         }
-        out_.subtrees.push_back(reference);
+        out_.subtrees.push_back({reference, sourceTree, node.id});
         subtreeStack_.push_back(reference);
         const bool compiled =
             CompileDocument(document, static_cast<uint16_t>(out_.subtrees.size()), outIndex, loadError);
@@ -190,6 +190,14 @@ private:
             } else if (written->isText) {
                 if (spec.type != ValueType::Text) {
                     error = what + " cannot be text";
+                    return false;
+                }
+                if (!spec.choices.empty() &&
+                    std::find(spec.choices.begin(), spec.choices.end(), written->text) == spec.choices.end()) {
+                    error = what + " must be one of:";
+                    for (const std::string& choice : spec.choices) {
+                        error += " " + choice;
+                    }
                     return false;
                 }
                 SetText(param, written->text);

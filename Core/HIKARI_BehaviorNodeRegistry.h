@@ -33,6 +33,8 @@ struct ParamSpec {
     double defaultNumber = 0.0;
     std::string defaultText{};
     bool output = false;
+    // Text の参数が取れる値。空なら自由な文字。
+    std::vector<std::string> choices{};
 };
 
 struct NodeType {
