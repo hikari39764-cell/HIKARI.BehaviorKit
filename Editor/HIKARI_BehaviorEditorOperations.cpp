@@ -188,6 +188,10 @@ private:
         data["guid"] = tree.guid;
         data["unsaved"] = tree.IsDirty();
         data["problems"] = std::move(problems);
+        // Play 中は、保存しなくても走っている角色にすぐ効く。どう効くかを添える。
+        if (std::string live = editor_->LiveEffect(tree); !live.empty()) {
+            data["live"] = std::move(live);
+        }
         return data;
     }
 
@@ -483,6 +487,40 @@ private:
                             {"follow", watch.followSelection},
                             {"pin", watch.pinned},
                             {"users", DescribeUsers(run)}};
+            });
+        Add("behaviortree.poke",
+            "During Play, change one blackboard value of one character right now, to try \"what if alert were "
+            "true\". Only that character and only this Play: the tree file is not changed, and nodes can write the "
+            "value again later.",
+            EditorOperationKind::Mutation, EditorOperationPermission::ModifyEditorState,
+            {{"key", Type::String, true, "Blackboard key name."},
+             {"value", Type::Json, true, "true/false, a number or [x, y, z]."},
+             {"object", Type::String, false, "Name of the character. Default: the watched character."},
+             kTree},
+            [this](const Json& parameters) {
+                OpenTree& tree = TreeOf(parameters);
+                const RunView run = InspectRun(tree, *editor_);
+                const std::string name = parameters.value("object", std::string{});
+                const auto found = std::find_if(run.users.begin(), run.users.end(), [&](const RunUser& entry) {
+                    return name.empty() ? entry.user == run.user : entry.user->OwnerName() == name;
+                });
+                if (found == run.users.end()) {
+                    throw Refusal{"NO_OBJECT", "No such character runs this tree now (Play must be running)."};
+                }
+                const std::string key = parameters.at("key").get<std::string>();
+                DocumentParam value{};
+                const bool parsed =
+                    ParseParamValue(key, parameters.at("value").dump(), value) && !value.isKey && !value.isText;
+                if (!parsed || !found->user->PokeKey(key, value.literal)) {
+                    throw Refusal{"BAD_VALUE", "The tree has no blackboard key \"" + key +
+                                                   "\" that can take this value (objects cannot be poked)."};
+                }
+                editor_->Watch().poked[found->user->OwnerHandle().value].insert(key);
+                Value now{};
+                found->user->Instance().GetKey(key, now);
+                return Json{{"object", std::string(found->user->OwnerName())},
+                            {"key", key},
+                            {"value", ShowValue(now, *found->user)}};
             });
         Query("behaviortree.run_state",
               "During Play, read what one character running this tree is doing: the state of each node in the "

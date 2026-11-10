@@ -65,12 +65,15 @@ void TreeWorkspace::Draw(EditorWorkspaceHostContext& context) {
     IEditorWorkspaceUi& ui = *context.ui;
     TreeEditor& editor = *editor_;
     const EditorWorkspaceInteraction interaction = ui.GetInteraction();
-    // 値の拖動や入力が終わったら、その間の変更を一手にまとめて積む。
-    if (interaction.editing == 0u) {
-        for (const auto& tree : editor.Trees()) {
-            if (tree->pendingCommit) {
-                editor.Commit(*tree);
-            }
+    // 値の拖動や入力が終わったら、その間の変更を一手にまとめて積む。拖動の途中も、Play 中の角色には毎フレーム届ける。
+    for (const auto& tree : editor.Trees()) {
+        if (!tree->pendingCommit) {
+            continue;
+        }
+        if (interaction.editing == 0u) {
+            editor.Commit(*tree);
+        } else {
+            editor.PublishDraft(*tree);
         }
     }
     if (OpenTree* tree = editor.Current();
@@ -84,6 +87,7 @@ void TreeWorkspace::Draw(EditorWorkspaceHostContext& context) {
     DrawTrees(ui);
     OpenTree* tree = editor.Current();
     const RunView run = tree != nullptr ? InspectRun(*tree, editor) : RunView{};
+    UpdateLiveNotice(tree);
     if (run.watchReplaced) {
         status_ = "The watched character is gone. Now watching " + std::string(run.user->OwnerName()) + ".";
     }

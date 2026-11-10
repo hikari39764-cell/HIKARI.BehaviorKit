@@ -54,6 +54,10 @@ private:
     // 場景で選んだ角色が別の樹を使っていれば、その樹を開く（Pin Tree の間は開かない）。
     void FollowSelectionToTree();
     void StartPlay();
+    // Play 中に保存していない変更を試している間の札と、保存・捨てるボタン（工具栏の続き）。
+    void DrawTrialControls(EDITOR_PROJECT::IEditorWorkspaceUi& ui);
+    // 図の上の状態行に出す Play 中の知らせ（樹に誤りがあって前の版で走っている、形が変わって最初から、など）。
+    void UpdateLiveNotice(OpenTree* tree);
     // 見ている角色の黒板の今の値。変わった値は少しの間目立たせる。
     void DrawRunValues(EDITOR_PROJECT::IEditorWorkspaceUi& ui, const OpenTree& tree, const RunView& run);
 
@@ -85,6 +89,10 @@ private:
     };
     std::unordered_map<std::string, ShownValue> shownValues_{};
     const ITreeUser* shownUser_ = nullptr;
+    // 状態行の知らせと、形が変わった知らせを出しておく残りの秒数、最後に見た知らせの番号。
+    std::string liveNotice_{};
+    float noticeSeconds_ = 0.0f;
+    uint64_t liveChangeSerial_ = 0u;
 };
 
 } // namespace HIKARI::BEHAVIOR::EDITING

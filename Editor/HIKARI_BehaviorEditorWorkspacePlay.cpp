@@ -19,6 +19,8 @@ using Json = nlohmann::json;
 
 // 値が変わった行を目立たせておく秒数。
 constexpr float kValueHighlightSeconds = 0.6f;
+// 工具栏の知らせを出しておく秒数。
+constexpr float kNoticeSeconds = 4.0f;
 
 std::string WatchLabel(const RunUser& entry) {
     const std::string name(entry.user->OwnerName());
@@ -106,6 +108,9 @@ void TreeWorkspace::DrawPlayToolbar(IEditorWorkspaceUi& ui, IEditorWorkspaceComm
             ui.Tooltip("Pause, then advance the game by one fixed tick.");
         }
 
+        if (playing) {
+            DrawTrialControls(ui);
+        }
         RunWatch& watch = editor_->Watch();
         ui.SameLine();
         ui.Checkbox("gameView", "Game View", &showGame_);
@@ -143,6 +148,52 @@ void TreeWorkspace::DrawPlayToolbar(IEditorWorkspaceUi& ui, IEditorWorkspaceComm
     }
 }
 
+// 保存していない変更を Play 中に試している間の札と、保存・捨てるボタン。
+void TreeWorkspace::DrawTrialControls(IEditorWorkspaceUi& ui) {
+    if (!editor_->AnyDirty()) {
+        return;
+    }
+    std::string message{};
+    ui.SameLine();
+    ui.Text("  Trying changes (not saved)");
+    ui.Tooltip("Changes to the tree reach the running characters at once, without saving. Save keeps them; "
+               "Discard Trial goes back to the last saved tree (Undo brings the changes back).");
+    ui.SameLine();
+    if (ui.Button("trialSave", "Save")) {
+        status_ = editor_->SaveAll(message) ? "Saved." : "Could not save: " + message;
+    }
+    ui.SameLine();
+    if (ui.Button("trialDiscard", "Discard Trial")) {
+        for (const auto& open : editor_->Trees()) {
+            editor_->DiscardToSaved(*open);
+        }
+        status_ = "Went back to the last saved trees. Undo brings the changes back.";
+    }
+}
+
+void TreeWorkspace::UpdateLiveNotice(OpenTree* tree) {
+    liveNotice_.clear();
+    const IEditorSceneServices* scene = editor_->Scene();
+    if (scene == nullptr || !scene->IsPlayActive()) {
+        noticeSeconds_ = 0.0f;
+        return;
+    }
+    // 走っている角色が新しい樹へ移った時、形が変わって最初からやり直したなら少しの間知らせる。
+    const BehaviorLibrary::LiveChange& change = BehaviorLibrary::Get().LastLiveChange();
+    if (change.serial != liveChangeSerial_) {
+        liveChangeSerial_ = change.serial;
+        noticeSeconds_ = change.restarted ? kNoticeSeconds : 0.0f;
+    }
+    const std::vector<Problem>* problems = tree != nullptr ? &editor_->Problems(*tree) : nullptr;
+    if (problems != nullptr &&
+        std::any_of(problems->begin(), problems->end(), [](const Problem& problem) { return !problem.warning; })) {
+        liveNotice_ = "The tree has errors: the game keeps running the last version that worked.";
+    } else if (noticeSeconds_ > 0.0f) {
+        liveNotice_ = "The structure changed, so the characters started again from the root.";
+        noticeSeconds_ -= frameSeconds_;
+    }
+}
+
 void TreeWorkspace::DrawRunValues(IEditorWorkspaceUi& ui, const OpenTree& tree, const RunView& run) {
     if (run.user != shownUser_) {
         // 見る角色を替えた時は、変わったとは数えない。
@@ -157,6 +208,7 @@ void TreeWorkspace::DrawRunValues(IEditorWorkspaceUi& ui, const OpenTree& tree, 
     if (!ui.BeginTable("runValues", 2u)) {
         return;
     }
+    std::unordered_set<std::string>& poked = editor_->Watch().poked[run.user->OwnerHandle().value];
     for (const DocumentKey& key : tree.model.Document().blackboard) {
         Value value{};
         if (!run.user->Instance().GetKey(key.name, value)) {
@@ -170,13 +222,32 @@ void TreeWorkspace::DrawRunValues(IEditorWorkspaceUi& ui, const OpenTree& tree, 
         }
         ui.TableNextRow();
         ui.TableNextColumn();
-        ui.Text(key.name);
+        // 変わったばかりの値は選ばれた行の色で出す。手で書き換えた値には印。
+        const bool byHand = poked.contains(key.name);
+        ui.Selectable("name." + key.name, byHand ? key.name + "  (set by hand)" : key.name, shown.highlight > 0.0f);
         ui.TableNextColumn();
-        // 変わったばかりの値は選ばれた行の色で出す。
-        ui.Selectable("value." + key.name, shown.text, shown.highlight > 0.0f);
+        // 数と真偽はその場で書き換えられる（この角色のこの Play だけ。樹には書かない）。
+        bool edited = false;
+        switch (value.type) {
+        case ValueType::Bool: edited = ui.Checkbox("value." + key.name, "##" + key.name, &value.boolean); break;
+        case ValueType::Int: {
+            int32_t number = static_cast<int32_t>(value.integer);
+            edited = ui.InputInt("value." + key.name, "##" + key.name, &number);
+            value.integer = number;
+            break;
+        }
+        case ValueType::Float: edited = ui.InputFloat("value." + key.name, "##" + key.name, &value.number); break;
+        default: ui.Text(shown.text); break;
+        }
+        if (edited && run.user->PokeKey(key.name, value)) {
+            poked.insert(key.name);
+        }
         shown.highlight = (std::max)(0.0f, shown.highlight - frameSeconds_);
     }
     ui.EndTable();
+    if (!poked.empty()) {
+        ui.Text("Values set by hand change only this character, only until Play stops.");
+    }
 }
 
 } // namespace HIKARI::BEHAVIOR::EDITING

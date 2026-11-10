@@ -64,6 +64,10 @@ struct CompiledTree {
     uint64_t registryRevision = 0u;
 };
 
+// 二つの編訳結果が同じ形か：節の並びと種類、子の並び、状態の置き場所、黒板のキー（名前と型）、埋め込んだ樹が全部同じ。
+// 違うのは参数の値と黒板の初期値だけ、という時に真。同じ形なら走っている途中の実例をそのまま新しい方へ移せる。
+bool SameShape(const CompiledTree& left, const CompiledTree& right) noexcept;
+
 // Subtree の節が指す樹を読む。reference は "tree" に書かれた値そのまま（資産の GUID）。
 using LoadSubtreeFn = std::function<bool(std::string_view reference, TreeDocument& out, std::string& error)>;
 
@@ -103,6 +107,9 @@ class TreeInstance {
 public:
     // 樹を割り当てて最初の状態にする（黒板は樹の初期値）。走っている節の stop は呼ばない：先に Abort する。
     void Bind(std::shared_ptr<const CompiledTree> tree);
+    // 同じ形の樹（SameShape）へ、走っている節・状態・黒板の今の値を保ったまま持ち替える。形が違えば何もせず false
+    // （呼ぶ側が Abort してから Bind し直す）。参数を変えた樹を、遊んでいる途中の角色へすぐ効かせる時に使う。
+    bool Swap(std::shared_ptr<const CompiledTree> tree) noexcept;
     bool IsBound() const noexcept { return tree_ != nullptr; }
     const CompiledTree* Tree() const noexcept { return tree_.get(); }
     // 乱数の系列を決める（Chance、order が random の節、節の INodeContext::Random）。Bind では変わらない。

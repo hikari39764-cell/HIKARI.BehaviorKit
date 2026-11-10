@@ -180,18 +180,30 @@ public:
     std::string_view OwnerName() const noexcept override { return object_.GetName(); }
     const std::string& TreeGuid() const noexcept override { return tree_; }
     const TreeInstance& Instance() const noexcept override { return instance_; }
+    bool PokeKey(std::string_view name, const Value& value) override { return instance_.SetKey(name, value); }
     std::string_view NameOf(GameProjectObjectHandle object) const noexcept override {
         return world_.IsValid() ? world_.FindObject(object).GetName() : std::string_view{};
     }
 
 private:
-    // 置き場の今の樹に合わせる。樹が替わっていたら（資産を保存し直した、節の種類が増減した）、走っている節を
-    // 打ち切って新しい樹で最初から。走らせる樹が無ければ false。
+    // 置き場の今の樹に合わせる。樹が替わっていたら（資産を保存し直した、編集器で書き換えた、節の種類が増減した）、
+    // 形が同じなら走っている途中のまま新しい樹へ移り、違えば走っている節を打ち切って最初から。走らせる樹が無ければ false。
     bool SyncTree() {
         BehaviorLibrary& library = BehaviorLibrary::Get();
         std::string error{};
         std::shared_ptr<const CompiledTree> tree = library.Acquire(world_, tree_, error);
         if (tree.get() != instance_.Tree()) {
+            if (instance_.Swap(tree)) {
+#if !defined(HIKARI_SHIPPING)
+                library.NoteLiveChange(false);
+#endif
+                return true;
+            }
+#if !defined(HIKARI_SHIPPING)
+            if (instance_.IsBound() && tree != nullptr) {
+                library.NoteLiveChange(true);
+            }
+#endif
             ResetTree();
             if (tree != nullptr) {
                 instance_.Bind(std::move(tree));

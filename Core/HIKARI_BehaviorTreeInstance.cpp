@@ -489,6 +489,33 @@ void TreeInstance::Bind(std::shared_ptr<const CompiledTree> tree) {
     orderKeys_.assign(widest, 0.0f);
 }
 
+bool SameShape(const CompiledTree& left, const CompiledTree& right) noexcept {
+    const auto sameNode = [](const CompiledNode& a, const CompiledNode& b) {
+        return a.type == b.type && a.sourceId == b.sourceId && a.sourceTree == b.sourceTree &&
+               a.childCount == b.childCount && a.firstChild == b.firstChild && a.stateOffset == b.stateOffset &&
+               a.stateSize == b.stateSize;
+    };
+    const auto sameKey = [](const CompiledKey& a, const CompiledKey& b) {
+        return a.name == b.name && a.initial.type == b.initial.type;
+    };
+    const auto sameSubtree = [](const EmbeddedTree& a, const EmbeddedTree& b) {
+        return a.reference == b.reference && a.parentTree == b.parentTree && a.parentNode == b.parentNode;
+    };
+    return left.stateBytes == right.stateBytes && left.children == right.children &&
+           std::equal(left.nodes.begin(), left.nodes.end(), right.nodes.begin(), right.nodes.end(), sameNode) &&
+           std::equal(left.keys.begin(), left.keys.end(), right.keys.begin(), right.keys.end(), sameKey) &&
+           std::equal(left.subtrees.begin(), left.subtrees.end(), right.subtrees.begin(), right.subtrees.end(),
+                      sameSubtree);
+}
+
+bool TreeInstance::Swap(std::shared_ptr<const CompiledTree> tree) noexcept {
+    if (tree_ == nullptr || tree == nullptr || !SameShape(*tree_, *tree)) {
+        return false;
+    }
+    tree_ = std::move(tree);
+    return true;
+}
+
 Status TreeInstance::Tick(const TickHost& host) {
     if (tree_ == nullptr || tree_->nodes.empty()) {
         return Status::Failure;

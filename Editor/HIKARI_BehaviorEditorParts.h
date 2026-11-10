@@ -36,7 +36,7 @@ struct NodeRun {
 
 // 開いている樹を使っている角色一人（直接でも、Subtree として埋め込んでいても）。
 struct RunUser {
-    const ITreeUser* user = nullptr;
+    ITreeUser* user = nullptr;
     // 今走っている葉の名前。まだ一度も進めていない（ゲームのコードが進める樹など）なら started が偽。
     std::string activity{};
     bool started = false;
@@ -45,7 +45,7 @@ struct RunUser {
 // Play 中、開いている樹の実行状態。見ている角色（TreeEditor::Watch）の様子を樹の節（資産の中の id）へ写す。
 struct RunView {
     // 見ている角色。Play 中でない・この樹を誰も使っていない時は nullptr。
-    const ITreeUser* user = nullptr;
+    ITreeUser* user = nullptr;
     std::vector<RunUser> users{};
     // 見ていた角色がいなくなったので、別の角色に替えた。
     bool watchReplaced = false;

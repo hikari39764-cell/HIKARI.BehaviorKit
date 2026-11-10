@@ -50,10 +50,11 @@ RunView InspectRun(const OpenTree& tree, TreeEditor& editor) {
         // Play の度に物体の番号は変わる。次の Play は最初の角色から見る。
         watch.object = {};
         watch.lastSelection = {};
+        watch.poked.clear();
         return view;
     }
     // 読めない樹（編訳の誤り）の角色も、選んだ樹を使っていれば一覧に出す。
-    for (const ITreeUser* user : BehaviorLibrary::Get().Users()) {
+    for (ITreeUser* user : BehaviorLibrary::Get().Users()) {
         if (RunsTree(*user, tree.guid)) {
             view.users.push_back({user, Activity(user->Instance()), user->Instance().HasStarted()});
         }

@@ -575,6 +575,47 @@ void CheckCustomDecorators(const NodeRegistry& registry, Trace& trace) {
           giveUp.State(0u) == NodeState::Failure);
 }
 
+// Play 中に樹を書き換えた時：参数の値だけなら走っている途中のまま新しい樹へ移り、形が変われば移れない。
+void CheckLiveSwap(const NodeRegistry& registry, Trace& trace) {
+    trace = {};
+    const char* base = R"({"formatVersion": 2, "blackboard": [{"name": "alert", "type": "bool"}], "root": 1,
+        "nodes": [{"id": 1, "type": "Sequence", "children": [2, 3]},
+        {"id": 2, "type": "Test.Work", "params": {"name": "a", "ticks": TICKS}},
+        {"id": 3, "type": "Test.Work", "params": {"name": "b"}}]})";
+    const auto withTicks = [&](int ticks) {
+        std::string json = base;
+        json.replace(json.find("TICKS"), 5u, std::to_string(ticks));
+        return Compile(registry, json);
+    };
+    TreeInstance instance{};
+    instance.Bind(withTicks(3));
+    CHECK(instance.SetKey("alert", BoolValue(true)));
+    CHECK(Step(instance) == Status::Running && trace.started["a"] == 1);
+    // a は 1 回進んだ。回数を 2 にした樹へ移ると、a は始め直さずに次の回で終わる。黒板の今の値も残る。
+    CHECK(instance.Swap(withTicks(2)));
+    CHECK(instance.State(1u) == NodeState::Running);
+    CHECK(Step(instance) == Status::Success && trace.started["a"] == 1 && trace.finished["a"] == 1);
+    Value alert{};
+    CHECK(instance.GetKey("alert", alert) && alert.boolean);
+
+    // 節を足す・キーを足すと形が変わる：移れない（呼ぶ側が最初からやり直す）。
+    const auto current = withTicks(2);
+    const auto added = Compile(registry, R"({"formatVersion": 2, "blackboard": [{"name": "alert", "type": "bool"}],
+        "root": 1, "nodes": [{"id": 1, "type": "Sequence", "children": [2, 3, 4]},
+        {"id": 2, "type": "Test.Work", "params": {"name": "a", "ticks": 2}},
+        {"id": 3, "type": "Test.Work", "params": {"name": "b"}}, {"id": 4, "type": "Succeed"}]})");
+    const auto keyed = Compile(registry, R"({"formatVersion": 2, "blackboard": [{"name": "alert", "type": "bool"},
+        {"name": "speed", "type": "float"}], "root": 1,
+        "nodes": [{"id": 1, "type": "Sequence", "children": [2, 3]},
+        {"id": 2, "type": "Test.Work", "params": {"name": "a", "ticks": 2}},
+        {"id": 3, "type": "Test.Work", "params": {"name": "b"}}]})");
+    CHECK(current != nullptr && added != nullptr && keyed != nullptr);
+    if (current != nullptr && added != nullptr && keyed != nullptr) {
+        CHECK(SameShape(*current, *withTicks(7)) && !SameShape(*current, *added) && !SameShape(*current, *keyed));
+    }
+    CHECK(!instance.Swap(added) && instance.Tree() != added.get());
+}
+
 void CheckBlackboard(const NodeRegistry& registry) {
     // 数値と真偽は型を保って写し、比べる。位置は同じ型同士。
     TreeInstance tree{};
@@ -766,6 +807,7 @@ int main() {
     CheckParallelAndDecorators(registry, trace);
     CheckOrdersAndChance(registry, trace);
     CheckCustomDecorators(registry, trace);
+    CheckLiveSwap(registry, trace);
     CheckBlackboard(registry);
     CheckSubtreeAndSharing(registry, trace);
     CheckSerialization();

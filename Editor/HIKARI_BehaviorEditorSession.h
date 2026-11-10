@@ -5,6 +5,7 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -50,6 +51,8 @@ struct OpenTree {
 
 private:
     friend class TreeEditor;
+    // 最後に開いた・保存した時の内容（試した変更を捨てる時に戻す先）。
+    std::string savedText_{};
     std::vector<Problem> problems_{};
     uint64_t checkedEpoch_ = 0u;
     uint64_t checkedRegistry_ = 0u;
@@ -65,6 +68,8 @@ struct RunWatch {
     bool pinned = false;
     // 最後に見た場景の選択（選択が変わった時だけ追う）。
     GameProjectObjectHandle lastSelection{};
+    // この Play で黒板の値を手で書き換えた角色（物体の番号）とキー。Play が終わると捨てる。
+    std::unordered_map<uint64_t, std::unordered_set<std::string>> poked{};
 };
 
 class TreeEditor {
@@ -91,6 +96,13 @@ public:
 
     // tree.model を書き換えた後に呼ぶ：今の内容を一手として文書へ積む。
     bool Commit(OpenTree& tree);
+    // 保存していない内容を、Play 中の角色へ草稿として渡す（保存済みと同じになったら外す）。文書を変える操作はどれも
+    // 最後にこれを呼ぶ。値を拖動している途中（pendingCommit）は、作業区が毎フレーム呼ぶ。
+    void PublishDraft(OpenTree& tree);
+    // Play 中に試した変更を捨てる：最後に保存した内容へ戻す（一手として積むので撤销できる）。
+    bool DiscardToSaved(OpenTree& tree);
+    // 今の内容が Play 中の角色にどう効くか（"keeps running"、"restarts"、"has errors"）。Play 中でなければ空。
+    std::string LiveEffect(OpenTree& tree);
     // 積んでいない書き換えを捨てて、文書の内容へ戻す（途中で断った操作の後始末）。
     void Revert(OpenTree& tree);
     bool Step(OpenTree& tree, bool redo);

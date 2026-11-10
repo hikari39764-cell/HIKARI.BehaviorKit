@@ -94,7 +94,7 @@ std::string TreeWorkspace::StatusLine(const OpenTree& tree, size_t problemCount,
         if (run.users.size() > 1u) {
             line += " (1 of " + std::to_string(run.users.size()) + "; Alt + click another one in the game view)";
         }
-        return line;
+        return liveNotice_.empty() ? line : line + "  |  " + liveNotice_;
     }
     if (problemCount != 0u) {
         line += "  |  " + std::to_string(problemCount) + (problemCount == 1u ? " problem" : " problems");

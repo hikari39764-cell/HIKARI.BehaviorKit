@@ -4,7 +4,9 @@
 
 #include <json.hpp>
 
+#include "HIKARI/Project/EditorModuleUi.h"
 #include "HIKARI/Project/EditorWorkspace.h"
+#include "HIKARI_BehaviorEditorParts.h"
 #include "HIKARI_BehaviorLibrary.h"
 
 namespace HIKARI::BEHAVIOR::EDITING {
@@ -104,6 +106,7 @@ OpenTree* TreeEditor::Adopt(const EditorDocumentResult& result, std::string& mes
         documents_->Close(result.document, true);
         return nullptr;
     }
+    tree->savedText_ = tree->model.Save();
     trees_.push_back(std::move(tree));
     current_ = trees_.size() - 1u;
     return trees_.back().get();
@@ -155,6 +158,7 @@ bool TreeEditor::Save(OpenTree& tree, std::string& message) {
         return false;
     }
     Accept(tree, result);
+    tree.savedText_ = tree.model.Save();
     if (tree.guid.empty()) {
         char guid[64]{};
         documents_->GetAssetGuid(tree.document, guid, sizeof(guid));
@@ -165,6 +169,7 @@ bool TreeEditor::Save(OpenTree& tree, std::string& message) {
         }
         tree.name = AssetName(tree.guid);
     }
+    PublishDraft(tree);
     return true;
 }
 
@@ -181,6 +186,7 @@ bool TreeEditor::Close(OpenTree& tree, bool discardChanges) {
         return false;
     }
     documents_->Close(tree.document, true);
+    BehaviorLibrary::Get().ClearDraft(tree.guid);
     std::erase_if(trees_, [&](const auto& open) { return open.get() == &tree; });
     current_ = (std::min)(current_, trees_.empty() ? 0u : trees_.size() - 1u);
     Changed();
@@ -193,6 +199,7 @@ bool TreeEditor::Commit(OpenTree& tree) {
     const EditorDocumentResult result = documents_->Apply(tree.document, tree.revision, tree.model.Save());
     if (result.Succeeded()) {
         Accept(tree, result);
+        PublishDraft(tree);
         return true;
     }
     // 積めなかった（撤销の履歴が一杯など）：画面を文書の内容へ戻して、二つがずれないようにする。
@@ -203,6 +210,57 @@ bool TreeEditor::Commit(OpenTree& tree) {
 void TreeEditor::Revert(OpenTree& tree) {
     std::string error{};
     Reload(tree, error);
+    PublishDraft(tree);
+}
+
+void TreeEditor::PublishDraft(OpenTree& tree) {
+    if (tree.guid.empty()) {
+        return;
+    }
+    BehaviorLibrary& library = BehaviorLibrary::Get();
+    if (tree.IsDirty() || tree.pendingCommit) {
+        library.SetDraft(tree.guid, tree.model.Save());
+    } else {
+        library.ClearDraft(tree.guid);
+    }
+}
+
+bool TreeEditor::DiscardToSaved(OpenTree& tree) {
+    std::string error{};
+    if (tree.savedText_ == tree.model.Save() || !tree.model.Load(tree.savedText_, error)) {
+        return false;
+    }
+    return Commit(tree);
+}
+
+std::string TreeEditor::LiveEffect(OpenTree& tree) {
+    if (scene_ == nullptr || !scene_->IsPlayActive()) {
+        return {};
+    }
+    const std::vector<Problem>& problems = Problems(tree);
+    if (std::any_of(problems.begin(), problems.end(), [](const Problem& problem) { return !problem.warning; })) {
+        return "has errors: the game keeps running the last version that worked";
+    }
+    const LoadSubtreeFn loader = [this](std::string_view reference, TreeDocument& out, std::string& why) {
+        return ReadTree(reference, out, why);
+    };
+    // この樹を使う角色の根の樹を、今の内容（埋め込んだ樹も編集中の物）で編訳し直し、走っている樹と比べる
+    // （形が同じなら走っている途中のまま、違えば最初から）。
+    for (const ITreeUser* user : BehaviorLibrary::Get().Users()) {
+        const CompiledTree* running = user->Instance().Tree();
+        if (running == nullptr || !RunsTree(*user, tree.guid)) {
+            continue;
+        }
+        TreeDocument root{};
+        CompiledTree compiled{};
+        std::string error{};
+        if (!ReadTree(user->TreeGuid(), root, error) || !CompileTree(root, Registry(), loader, compiled, error)) {
+            return "has errors: the game keeps running the last version that worked";
+        }
+        return SameShape(*running, compiled) ? "keeps running: characters use the new values on their next update"
+                                             : "restarts: the structure changed, so characters start from the root";
+    }
+    return "applies on the next update";
 }
 
 bool TreeEditor::Step(OpenTree& tree, bool redo) {
@@ -216,7 +274,9 @@ bool TreeEditor::Step(OpenTree& tree, bool redo) {
     }
     Accept(tree, result);
     std::string error{};
-    return Reload(tree, error);
+    const bool reloaded = Reload(tree, error);
+    PublishDraft(tree);
+    return reloaded;
 }
 
 const std::vector<Problem>& TreeEditor::Problems(OpenTree& tree) {
