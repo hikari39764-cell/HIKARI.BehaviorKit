@@ -155,6 +155,9 @@ UI = {
     'Shortcut': ('快捷键', 'ショートカット'),
     'Recently Opened': ('最近打开', '最近開いた'),
     'Start From': ('从模板开始', 'ひな形'),
+    'Now': ('现在', '現在'), 'Now: the values of {0}.': ('“现在”列是 {0} 的当前值。', '「現在」の列は {0} の今の値です。'),
+    'Set by hand: only this character, only until Play stops.': ('手动改过：只影响这个角色，Play 结束就恢复。',
+                                                                 '手で変更：このキャラクターだけ、Play を止めるまで。'),
     'Empty': ('空的', '空'), 'Only a Selector as the root.': ('只有一个选择节点作为根。', 'ルートのセレクターだけ。'),
     'Patrol and Chase': ('巡逻与追击', '巡回と追跡'),
     'Chases the target while it is set, otherwise walks between pointA and pointB.': (
@@ -204,7 +207,6 @@ UI = {
     'The blackboard variable that receives the value.': ('接收这个值的黑板变量。', '値を受け取るブラックボードの変数。'),
     'The value to send or write.': ('要发出或写入的值。', '送る、または書き込む値。'),
     'Parameter': ('参数', 'パラメーター'),
-    '{0} *': ('{0} *', '{0} *'),
     'Changed from the default.': ('改过默认值。', '既定値から変更しています。'),
     'Fixed': ('固定值', '固定値'),
     'Use a fixed value instead.': ('改用固定值。', '固定値を使います。'),
@@ -336,9 +338,6 @@ UI = {
                                                                                    'ツリーにエラーがあります：ゲームでは前の動くバージョンのままです。'),
     'The structure changed, so the characters started again from the root.': ('结构变了，角色已从根重新开始。',
                                                                                '構造が変わったので、キャラクターはルートからやり直しました。'),
-    'Now, on {0}:': ('现在，{0} 的值：', '今の {0} の値：'), '{0}  (set by hand)': ('{0}  （手动改过）', '{0}  （手動で変更）'),
-    'Values set by hand change only this character, only until Play stops.': ('手动改的值只影响这个角色，只到 Play 停止。',
-                                                                               '手動で変えた値はこのキャラクターだけに、Play を止めるまで効きます。'),
     '(none)': ('（无）', '（なし）'), '(an object)': ('（一个物体）', '（オブジェクト）'),
     'idle': ('空闲', '待機中'),
 }

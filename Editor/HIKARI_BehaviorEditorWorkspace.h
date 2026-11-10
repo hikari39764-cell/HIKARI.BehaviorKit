@@ -80,8 +80,9 @@ private:
     void DrawTrialControls(EDITOR_PROJECT::IEditorWorkspaceUi& ui);
     // 図の上の状態行に出す Play 中の知らせ（樹に誤りがあって前の版で走っている、形が変わって最初から、など）。
     void UpdateLiveNotice(OpenTree* tree);
-    // 見ている角色の黒板の今の値。変わった値は少しの間目立たせる。
-    void DrawRunValues(EDITOR_PROJECT::IEditorWorkspaceUi& ui, const OpenTree& tree, const RunView& run);
+    // 変数の表の「今」の列：見ている角色の黒板の今の値（数と真偽はその場で書き換えられる）。変わった値は少しの間目立たせる。
+    void BeginRunValues(const RunView& run);
+    void DrawRunValue(EDITOR_PROJECT::IEditorWorkspaceUi& ui, const DocumentKey& key, const RunView& run);
 
     // ---- 樹の図（HIKARI_BehaviorEditorWorkspaceGraph.cpp）----
     std::string StatusLine(EDITOR_PROJECT::IEditorWorkspaceUi& ui, const OpenTree& tree, const RunView& run) const;

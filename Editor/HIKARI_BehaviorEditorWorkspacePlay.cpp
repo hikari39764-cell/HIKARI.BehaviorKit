@@ -196,66 +196,54 @@ void TreeWorkspace::UpdateLiveNotice(OpenTree* tree) {
     }
 }
 
-void TreeWorkspace::DrawRunValues(IEditorWorkspaceUi& ui, const OpenTree& tree, const RunView& run) {
+void TreeWorkspace::BeginRunValues(const RunView& run) {
     if (run.user != shownUser_) {
         // 見る角色を替えた時は、変わったとは数えない。
         shownUser_ = run.user;
         shownValues_.clear();
     }
-    if (run.user == nullptr || tree.model.Document().blackboard.empty()) {
-        return;
-    }
-    ui.Separator();
-    ui.Text(FormatText(ui, "Now, on {0}:", {run.user->OwnerName()}));
-    if (!ui.BeginTable("runValues", 2u)) {
+}
+
+void TreeWorkspace::DrawRunValue(IEditorWorkspaceUi& ui, const DocumentKey& key, const RunView& run) {
+    Value value{};
+    if (run.user == nullptr || !run.user->Instance().GetKey(key.name, value)) {
+        ui.Text(Verbatim("-"));
         return;
     }
     std::unordered_set<std::string>& poked = editor_->Watch().poked[run.user->OwnerHandle().value];
-    for (const DocumentKey& key : tree.model.Document().blackboard) {
-        Value value{};
-        if (!run.user->Instance().GetKey(key.name, value)) {
-            continue;
-        }
-        std::string text = ShowValue(value, *run.user);
-        ShownValue& shown = shownValues_[key.name];
-        if (shown.text != text) {
-            shown.highlight = shown.text.empty() ? 0.0f : kValueHighlightSeconds;
-            shown.text = std::move(text);
-        }
-        ui.TableNextRow();
-        ui.TableNextColumn();
-        // 変わったばかりの値は選ばれた行の色で出す。手で書き換えた値には印。
-        const bool byHand = poked.contains(key.name);
-        ui.Selectable("name." + key.name,
-                      byHand ? FormatText(ui, "{0}  (set by hand)", {key.name}) : Verbatim(key.name),
+    std::string text = ShowValue(value, *run.user);
+    ShownValue& shown = shownValues_[key.name];
+    if (shown.text != text) {
+        shown.highlight = shown.text.empty() ? 0.0f : kValueHighlightSeconds;
+        shown.text = std::move(text);
+    }
+    const std::string id = "now." + key.name;
+    // 数と真偽はその場で書き換えられる（この角色のこの Play だけ。樹には書かない）。変わったばかりの値と手で書いた値は印。
+    bool edited = false;
+    switch (value.type) {
+    case ValueType::Bool: edited = ui.Checkbox(id, Verbatim("##" + key.name), &value.boolean); break;
+    case ValueType::Int: {
+        int32_t number = static_cast<int32_t>(value.integer);
+        edited = ui.InputInt(id, Verbatim("##" + key.name), &number);
+        value.integer = number;
+        break;
+    }
+    case ValueType::Float: edited = ui.InputFloat(id, Verbatim("##" + key.name), &value.number); break;
+    default:
+        // 物体は名前（訳さない）、空なら界面の字。変わったばかりなら選ばれた行の色。
+        ui.Selectable(id,
+                      value.type == ValueType::Object && !value.object.IsValid() ? std::string("(none)")
+                                                                                 : Verbatim(shown.text),
                       shown.highlight > 0.0f);
-        ui.TableNextColumn();
-        // 数と真偽はその場で書き換えられる（この角色のこの Play だけ。樹には書かない）。
-        bool edited = false;
-        switch (value.type) {
-        case ValueType::Bool: edited = ui.Checkbox("value." + key.name, "##" + key.name, &value.boolean); break;
-        case ValueType::Int: {
-            int32_t number = static_cast<int32_t>(value.integer);
-            edited = ui.InputInt("value." + key.name, "##" + key.name, &number);
-            value.integer = number;
-            break;
-        }
-        case ValueType::Float: edited = ui.InputFloat("value." + key.name, "##" + key.name, &value.number); break;
-        default:
-            // 物体は名前（訳さない）、空なら界面の字。
-            ui.Text(value.type == ValueType::Object && !value.object.IsValid() ? std::string("(none)")
-                                                                               : Verbatim(shown.text));
-            break;
-        }
-        if (edited && run.user->PokeKey(key.name, value)) {
-            poked.insert(key.name);
-        }
-        shown.highlight = (std::max)(0.0f, shown.highlight - frameSeconds_);
+        break;
     }
-    ui.EndTable();
-    if (!poked.empty()) {
-        ui.Text("Values set by hand change only this character, only until Play stops.");
+    if (poked.contains(key.name)) {
+        ui.Tooltip("Set by hand: only this character, only until Play stops.");
     }
+    if (edited && run.user->PokeKey(key.name, value)) {
+        poked.insert(key.name);
+    }
+    shown.highlight = (std::max)(0.0f, shown.highlight - frameSeconds_);
 }
 
 } // namespace HIKARI::BEHAVIOR::EDITING

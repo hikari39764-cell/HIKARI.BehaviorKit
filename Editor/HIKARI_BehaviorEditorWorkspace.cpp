@@ -543,8 +543,16 @@ void TreeWorkspace::DrawBlackboard(IEditorWorkspaceUi& ui, OpenTree& tree, const
     }
     // 変数の表：名前（そのまま書き換えると参数の指す先も変わる）、型、初期値、使っている節の数、消す。
     bool askRemoveKey = false;
-    constexpr std::string_view kHeaders[] = {"Name", "Type", "Initial Value", "Used", ""};
-    if (ui.BeginTableHeaders("keys", kHeaders)) {
+    // Play 中は見ている角色の今の値の列が増える。
+    BeginRunValues(run);
+    const bool playing = run.user != nullptr;
+    if (playing) {
+        ui.Text(FormatText(ui, "Now: the values of {0}.", {run.user->OwnerName()}));
+    }
+    constexpr std::string_view kHeaders[] = {"Name", "Type", "Initial Value", "Now", "Used", ""};
+    constexpr std::string_view kEditHeaders[] = {"Name", "Type", "Initial Value", "Used", ""};
+    if (ui.BeginTableHeaders("keys", playing ? std::span<const std::string_view>(kHeaders)
+                                             : std::span<const std::string_view>(kEditHeaders))) {
         for (size_t index = 0u; index < model.Document().blackboard.size(); ++index) {
             const DocumentKey key = model.Document().blackboard[index];
             const std::string id = "key." + std::to_string(index);
@@ -569,6 +577,10 @@ void TreeWorkspace::DrawBlackboard(IEditorWorkspaceUi& ui, OpenTree& tree, const
             }
             ui.TableNextColumn();
             tree.pendingCommit = DrawKeyValue(ui, tree, index) || tree.pendingCommit;
+            if (playing) {
+                ui.TableNextColumn();
+                DrawRunValue(ui, key, run);
+            }
             ui.TableNextColumn();
             const std::vector<uint32_t> users = model.KeyUsers(key.name);
             // 押すと、使っている節を図で選ぶ。
@@ -624,7 +636,6 @@ void TreeWorkspace::DrawBlackboard(IEditorWorkspaceUi& ui, OpenTree& tree, const
         }
         ui.EndPopup();
     }
-    DrawRunValues(ui, tree, run);
 }
 
 std::unique_ptr<IEditorWorkspace> CreateTreeWorkspace(std::shared_ptr<TreeEditor> editor) {
