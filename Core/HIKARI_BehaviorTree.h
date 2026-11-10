@@ -71,6 +71,23 @@ using LoadSubtreeFn = std::function<bool(std::string_view reference, TreeDocumen
 bool CompileTree(const TreeDocument& document, const NodeRegistry& registry, const LoadSubtreeFn& loadSubtree,
                  CompiledTree& out, std::string& error);
 
+// 節の今の状態（編集器と behaviortree.run_state が見せる物）。根が終わって次の回が最初から始まる時に全部 Idle へ戻る。
+enum class NodeState : uint8_t {
+    // この回はまだ進められていない。
+    Idle,
+    // 自分が走っている（葉、または子を待たずに Running を返した Decorator）。
+    Running,
+    // 子が走っているのを待っている（子を持つ節）。
+    Waiting,
+    Success,
+    Failure,
+    // 走っている途中で上の節に打ち切られた。
+    Aborted,
+};
+
+// "idle"、"running"、"waiting"、"success"、"failure"、"aborted"。
+std::string_view NodeStateName(NodeState state) noexcept;
+
 // 一回進める時に節へ渡す物。
 struct TickHost {
     WorldView world{};
@@ -88,6 +105,8 @@ public:
     void Bind(std::shared_ptr<const CompiledTree> tree);
     bool IsBound() const noexcept { return tree_ != nullptr; }
     const CompiledTree* Tree() const noexcept { return tree_.get(); }
+    // 乱数の系列を決める（Chance、order が random の節、節の INodeContext::Random）。Bind では変わらない。
+    void Seed(uint64_t seed) noexcept { random_ = seed; }
 
     // 根から一回進める。根が Success か Failure を返したら、次の回は最初から。
     Status Tick(const TickHost& host);
@@ -98,13 +117,12 @@ public:
     bool SetKey(std::string_view name, const Value& value);
     bool GetKey(std::string_view name, Value& out) const;
 
-    // 編集器の表示用：節ごとの「今走っているか」「一番新しい Tick で進められたか」と、最後に返した結果。
-    bool IsNodeRunning(uint32_t node) const noexcept { return node < active_.size() && active_[node] != 0u; }
+    // 編集器の表示用：節ごとの今の状態と、一番新しい Tick で進められたか。
+    NodeState State(uint32_t node) const noexcept {
+        return node < nodeStates_.size() ? static_cast<NodeState>(nodeStates_[node]) : NodeState::Idle;
+    }
     bool RanInLastTick(uint32_t node) const noexcept {
         return tick_ != 0u && node < lastTick_.size() && lastTick_[node] == tick_;
-    }
-    Status LastStatus(uint32_t node) const noexcept {
-        return node < lastStatus_.size() ? static_cast<Status>(lastStatus_[node]) : Status::Failure;
     }
 
 private:
@@ -112,14 +130,18 @@ private:
 
     std::shared_ptr<const CompiledTree> tree_{};
     std::vector<uint8_t> state_{};
+    // 走り始めて、まだ終わっていない節（Running か Waiting）。
     std::vector<uint8_t> active_{};
-    std::vector<uint8_t> lastStatus_{};
+    std::vector<uint8_t> nodeStates_{};
     // 節が最後に進められた Tick の番号（tick_ と同じなら一番新しい Tick）。
     std::vector<uint32_t> lastTick_{};
     uint32_t tick_ = 0u;
     std::vector<Value> blackboard_{};
+    // 子の並びを決める時の、子ごとの並べ替えの値（Tick の中で確保しないよう Bind で取っておく）。
+    std::vector<float> orderKeys_{};
     // この実例が進んだ時間の合計（Cooldown と TimeLimit の時計）。
     double time_ = 0.0;
+    uint64_t random_ = 0x9E3779B97F4A7C15ull;
 };
 
 } // namespace HIKARI::BEHAVIOR

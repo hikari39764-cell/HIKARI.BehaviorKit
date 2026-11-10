@@ -39,13 +39,32 @@ std::string ClipboardText(IEditorWorkspaceUi& ui) {
     return text;
 }
 
+NodeState RunStateOf(uint32_t id, const RunView& run) {
+    const auto found = run.nodes.find(id);
+    return found != run.nodes.end() ? found->second.state : NodeState::Idle;
+}
+
+// 題の右の字：根の印と、Play 中の節の様子。
+std::string BadgeOf(uint32_t id, uint32_t root, const RunView& run) {
+    const NodeState runState = RunStateOf(id, run);
+    std::string state = run.user != nullptr && runState != NodeState::Idle ? std::string(NodeStateName(runState)) : "";
+    if (!state.empty()) {
+        state[0] = static_cast<char>(state[0] - 'a' + 'A');
+    }
+    if (id != root) {
+        return state;
+    }
+    return state.empty() ? "Root" : "Root | " + state;
+}
+
 EditorNodeGraphHighlight HighlightOf(uint32_t id, const std::vector<Problem>& problems, const RunView& run) {
     if (run.user != nullptr) {
-        const auto state = run.nodes.find(id);
-        switch (state != run.nodes.end() ? state->second : NodeRunState::Idle) {
-        case NodeRunState::Running: return EditorNodeGraphHighlight::Active;
-        case NodeRunState::Succeeded: return EditorNodeGraphHighlight::Success;
-        case NodeRunState::Failed: return EditorNodeGraphHighlight::Failure;
+        switch (RunStateOf(id, run)) {
+        case NodeState::Running:
+        case NodeState::Waiting: return EditorNodeGraphHighlight::Active;
+        case NodeState::Success: return EditorNodeGraphHighlight::Success;
+        case NodeState::Failure: return EditorNodeGraphHighlight::Failure;
+        case NodeState::Aborted: return EditorNodeGraphHighlight::Warning;
         default: return EditorNodeGraphHighlight::None;
         }
     }
@@ -107,6 +126,7 @@ void TreeWorkspace::DrawGraph(IEditorWorkspaceUi& ui, OpenTree& tree, const RunV
     const size_t count = document.nodes.size();
     std::vector<EditorNodeGraphPin> pins(count * 2u);
     std::vector<std::string> details(count);
+    std::vector<std::string> badges(count);
     std::vector<EditorNodeGraphNode> nodes(count);
     std::vector<EditorNodeGraphLink> links{};
     for (size_t index = 0u; index < count; ++index) {
@@ -114,6 +134,7 @@ void TreeWorkspace::DrawGraph(IEditorWorkspaceUi& ui, OpenTree& tree, const RunV
         const NodeType* type = registry.Find(source.type);
         const uint64_t id = source.id;
         details[index] = SummarizeParams(source, type, editor);
+        badges[index] = BadgeOf(source.id, document.root, run);
         // 引脚の id：入力（親から）は 節 * 2、出力（子へ）は 節 * 2 + 1。
         pins[index * 2u].id = id * 2u;
         pins[index * 2u + 1u].id = id * 2u + 1u;
@@ -121,7 +142,7 @@ void TreeWorkspace::DrawGraph(IEditorWorkspaceUi& ui, OpenTree& tree, const RunV
         node.id = id;
         node.title = type != nullptr ? type->displayName.c_str() : source.type.c_str();
         node.detail = details[index].empty() ? nullptr : details[index].c_str();
-        node.badge = source.id == document.root ? "Root" : nullptr;
+        node.badge = badges[index].empty() ? nullptr : badges[index].c_str();
         node.position = {source.x, source.y};
         node.color = TitleColor(type);
         node.inputs = &pins[index * 2u];
@@ -135,8 +156,8 @@ void TreeWorkspace::DrawGraph(IEditorWorkspaceUi& ui, OpenTree& tree, const RunV
             link.id = (id << 32u) | child;
             link.outputPinId = id * 2u + 1u;
             link.inputPinId = static_cast<uint64_t>(child) * 2u;
-            const auto state = run.nodes.find(child);
-            if (state != run.nodes.end() && state->second == NodeRunState::Running) {
+            const NodeState childState = RunStateOf(child, run);
+            if (childState == NodeState::Running || childState == NodeState::Waiting) {
                 link.highlight = EditorNodeGraphHighlight::Active;
             }
             links.push_back(link);

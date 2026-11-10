@@ -27,7 +27,7 @@ __declspec(dllimport) long long(__stdcall* __stdcall GetProcAddress(HINSTANCE__*
 
 namespace HIKARI::BEHAVIOR {
 
-inline constexpr uint32_t kBehaviorApiVersion = 3u;
+inline constexpr uint32_t kBehaviorApiVersion = 4u;
 inline constexpr wchar_t kBehaviorLibraryName[] = L"HIKARI_BehaviorKit.dll";
 inline constexpr char kBehaviorApiEntryPoint[] = "HIKARI_BehaviorKit_GetApi";
 
@@ -59,10 +59,14 @@ enum class TickOutcome : uint8_t {
     Ticked,
 };
 
-// 節の種類。Condition は一回の呼び出しで Success か Failure を返す（Running を返さない、状態を持たない）。
+// 節の種類。
+//   Action   ：葉。Running を返して何回にも分けて進めてよい。
+//   Condition：葉。一回の呼び出しで Success か Failure を返す（Running を返さない、状態を持たない）。
+//   Decorator：子を一つだけ持つ。tick の中で INodeContext::TickChild を呼んで子を進め、その結果をどう返すかを決める。
 enum class NodeKind : uint8_t {
     Action,
     Condition,
+    Decorator,
 };
 
 // 節の参数の宣言。樹のファイルの "params" のキーと、編集器に出す名前・既定値。
@@ -109,6 +113,13 @@ public:
     // 引擎が解放する。読む側は World().ReadObjectVariable、事件は World().EmitEvent をそのまま使う。
     virtual bool WriteOwnerVariable(std::string_view variableId, const GameProjectBindingValue& value) noexcept = 0;
 
+    // 0 以上 1 未満の乱数。樹の実例ごとの系列なので、角色同士で同じ並びにはならない。
+    virtual float Random() noexcept = 0;
+
+    // Decorator の tick の中だけで使う：子を一回進めてその結果を返す。同じ回に二度呼ぶと、進めずに前の結果を返す。
+    // 葉と score の中では進めずに Failure。Decorator が Running 以外を返した時、まだ走っている子は打ち切られる。
+    virtual Status TickChild() noexcept = 0;
+
 protected:
     ~INodeContext() = default;
 };
@@ -117,6 +128,9 @@ protected:
 //   start：節が走り始める時（state は 0 で埋めてある）。無くてよい。
 //   tick ：進める度。Running を返す間、次の回も呼ばれる。
 //   stop ：Success / Failure を返した後（aborted = false）と、上の節に打ち切られた時（aborted = true）。無くてよい。
+//   score：親の Selector / Sequence / Parallel の order が utility か random の時、この節の点数として親が読む
+//          （utility は高い順、random は点数に比例した確率で先に来る、0 以下はこの回は外す）。走っていない時にも
+//          呼ばれるので state は渡さず、参数と黒板と World から決める。無ければ 1。
 struct NodeTypeDesc {
     uint32_t structSize = sizeof(NodeTypeDesc);
     NodeKind kind = NodeKind::Action;
@@ -132,6 +146,7 @@ struct NodeTypeDesc {
     void (*start)(INodeContext& context, void* state, void* user) noexcept = nullptr;
     Status (*tick)(INodeContext& context, void* state, void* user) noexcept = nullptr;
     void (*stop)(INodeContext& context, void* state, void* user, bool aborted) noexcept = nullptr;
+    float (*score)(INodeContext& context, void* user) noexcept = nullptr;
     void* user = nullptr;
 };
 

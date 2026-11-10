@@ -3,7 +3,7 @@
 
 #include "HIKARI_BehaviorNodeRegistry.h"
 
-// 引擎に触れない葉。外から登記する節と同じ公開の窓口（NodeTypeDesc と INodeContext）だけで書いてある。
+// 引擎に触れない節。外から登記する節と同じ公開の窓口（NodeTypeDesc と INodeContext）だけで書いてある。
 namespace HIKARI::BEHAVIOR {
 namespace {
 
@@ -57,8 +57,16 @@ Status TickCheckVariable(INodeContext& context, void*, void*) noexcept {
     return result ? Status::Success : Status::Failure;
 }
 
+Status TickChance(INodeContext& context, void*, void*) noexcept {
+    return context.Random() < context.ParamFloat(0u) ? Status::Success : Status::Failure;
+}
+
 Status TickSucceed(INodeContext&, void*, void*) noexcept { return Status::Success; }
 Status TickFail(INodeContext&, void*, void*) noexcept { return Status::Failure; }
+
+// Score：子をそのまま進め、親には参数の点数を渡す。
+Status TickScore(INodeContext& context, void*, void*) noexcept { return context.TickChild(); }
+float ScoreOf(INodeContext& context, void*) noexcept { return context.ParamFloat(0u); }
 
 } // namespace
 
@@ -89,8 +97,7 @@ void RegisterCoreNodes(NodeRegistry& registry) {
     registry.Register(set, &registry, error);
 
     constexpr ParamDesc kCheckParams[] = {{"value", ValueType::Any, "Value", 0.0},
-                                          {"op", ValueType::Text, "Compare", 0.0, "set", false,
-                                           "set|==|!=|<|<=|>|>="},
+                                          {"op", ValueType::Text, "Compare", 0.0, "set", false, "set|==|!=|<|<=|>|>="},
                                           {"other", ValueType::Any, "Other", 0.0}};
     NodeTypeDesc check{};
     check.kind = NodeKind::Condition;
@@ -103,6 +110,35 @@ void RegisterCoreNodes(NodeRegistry& registry) {
     check.paramCount = 3u;
     check.tick = &TickCheckVariable;
     registry.Register(check, &registry, error);
+
+    constexpr ParamDesc kChanceParams[] = {{"chance", ValueType::Float, "Chance", 0.5}};
+    NodeTypeDesc chance{};
+    chance.kind = NodeKind::Condition;
+    chance.typeName = "Chance";
+    chance.displayName = "Chance";
+    chance.category = "Flow";
+    chance.description = "Succeeds with probability Chance (0 = never, 1 = always), otherwise fails. Each object "
+                         "rolls its own numbers.";
+    chance.params = kChanceParams;
+    chance.paramCount = 1u;
+    chance.tick = &TickChance;
+    registry.Register(chance, &registry, error);
+
+    constexpr ParamDesc kScoreParams[] = {{"score", ValueType::Float, "Score", 1.0}};
+    NodeTypeDesc score{};
+    score.kind = NodeKind::Decorator;
+    score.typeName = "Score";
+    score.displayName = "Score";
+    score.category = "Utility";
+    score.description = "Gives its child a score, read by a Selector, Sequence or Parallel whose Order is utility "
+                        "(highest first) or random (chosen first in proportion to the score). 0 or less: the child "
+                        "sits out. Use a blackboard key to let other nodes or game code change the score. Otherwise "
+                        "it just runs its child.";
+    score.params = kScoreParams;
+    score.paramCount = 1u;
+    score.tick = &TickScore;
+    score.score = &ScoreOf;
+    registry.Register(score, &registry, error);
 
     NodeTypeDesc succeed{};
     succeed.kind = NodeKind::Condition;

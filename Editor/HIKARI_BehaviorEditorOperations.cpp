@@ -438,9 +438,10 @@ private:
 
     void RegisterRunState() {
         Query("behaviortree.run_state",
-              "During Play, read what one object running this tree is doing: which nodes are running, which "
-              "succeeded or failed in the latest update, and its blackboard values. Follows the object selected in "
-              "the Scene, otherwise the first object that runs the tree.",
+              "During Play, read what one object running this tree is doing: the state of each node in the current "
+              "run of the tree (running, waiting for a child, success, failure, aborted; nodes not listed have not "
+              "run yet), whether it was updated in the latest tick, and the blackboard values. Follows the object "
+              "selected in the Scene, otherwise the first object that runs the tree.",
               {kTree}, [this](const Json& parameters) {
                   OpenTree& tree = TreeOf(parameters);
                   const IEditorSceneServices* scene = editor_->Scene();
@@ -451,14 +452,13 @@ private:
                   if (run.user == nullptr) {
                       return data;
                   }
-                  constexpr const char* kStates[] = {"idle", "running", "succeeded", "failed"};
                   Json nodes = Json::array();
                   for (const DocumentNode& node : tree.model.Document().nodes) {
-                      const auto state = run.nodes.find(node.id);
-                      if (state != run.nodes.end() && state->second != NodeRunState::Idle) {
+                      if (const auto found = run.nodes.find(node.id); found != run.nodes.end()) {
                           nodes.push_back({{"node", node.id},
                                            {"type", node.type},
-                                           {"state", kStates[static_cast<size_t>(state->second)]}});
+                                           {"state", std::string(NodeStateName(found->second.state))},
+                                           {"ticked", found->second.ticked}});
                       }
                   }
                   Json blackboard = Json::object();

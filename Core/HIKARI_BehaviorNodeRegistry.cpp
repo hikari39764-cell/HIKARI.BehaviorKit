@@ -24,18 +24,28 @@ std::vector<std::string> SplitChoices(const char* text) {
 
 NodeRegistry::NodeRegistry() {
     const ParamSpec reactive{"reactive", ValueType::Bool, "Reactive", 0.0, {}, false};
+    // 子を回す順。Sequence / Selector は 1 番、Parallel は 1 番の参数（実行器がその番号で読む）。
+    const ParamSpec order{"order", ValueType::Text, "Order", 0.0, "fixed", false, {"fixed", "random", "utility"}};
     AddBuiltin("Sequence", "Sequence",
                "Runs its children in order and fails at the first one that fails. Reactive: every tick starts "
-               "again from the first child, so an earlier condition can interrupt a later action.",
-               BuiltinKind::Sequence, {reactive});
+               "again from the first child, so an earlier condition can interrupt a later action. Order: fixed "
+               "(left to right), random (shuffled each time it starts; a Score child comes first more often in "
+               "proportion to its score) or utility (highest Score first). With random or utility, a child "
+               "whose score is 0 or less sits out.",
+               BuiltinKind::Sequence, {reactive, order});
     AddBuiltin("Selector", "Selector",
                "Tries its children in order and succeeds at the first one that succeeds. Reactive: every tick "
-               "starts again from the first child, so a higher-priority branch can take over.",
-               BuiltinKind::Selector, {reactive});
+               "starts again from the first child, so a higher-priority branch can take over. Order: fixed (left "
+               "to right), random (shuffled each time it starts; chance in proportion to Score) or utility "
+               "(highest Score first; with Reactive the scores are read again every tick, so a better choice "
+               "takes over). With random or utility, a child whose score is 0 or less sits out.",
+               BuiltinKind::Selector, {reactive, order});
     AddBuiltin("Parallel", "Parallel",
                "Runs all children together. Policy \"all\": succeeds when all succeed, fails when one fails. "
-               "Policy \"any\": succeeds when one succeeds, fails when all fail.",
-               BuiltinKind::Parallel, {{"policy", ValueType::Text, "Policy", 0.0, "all", false, {"all", "any"}}});
+               "Policy \"any\": succeeds when one succeeds, fails when all fail. Order random or utility: "
+               "children run in that order within a tick, and a child whose Score is 0 or less sits out.",
+               BuiltinKind::Parallel,
+               {{"policy", ValueType::Text, "Policy", 0.0, "all", false, {"all", "any"}}, order});
     AddBuiltin("Inverter", "Inverter", "Turns its child's success into failure and failure into success.",
                BuiltinKind::Inverter, {});
     AddBuiltin("ForceSuccess", "Force Success", "Succeeds when its child finishes, whatever the result.",
@@ -82,6 +92,10 @@ bool NodeRegistry::Register(const NodeTypeDesc& desc, const void* owner, std::st
         error = "node type \"" + name + "\" needs a tick function and its parameter table";
         return false;
     }
+    if (desc.kind > NodeKind::Decorator) {
+        error = "node type \"" + name + "\" has an unknown kind";
+        return false;
+    }
     if (desc.kind == NodeKind::Condition && (desc.stateSize != 0u || desc.start != nullptr || desc.stop != nullptr)) {
         error = "condition \"" + name + "\" must not keep state or use start/stop";
         return false;
@@ -96,6 +110,7 @@ bool NodeRegistry::Register(const NodeTypeDesc& desc, const void* owner, std::st
     type->start = desc.start;
     type->tick = desc.tick;
     type->stop = desc.stop;
+    type->score = desc.score;
     type->user = desc.user;
     type->owner = owner;
     for (uint32_t index = 0u; index < desc.paramCount; ++index) {
@@ -110,10 +125,13 @@ bool NodeRegistry::Register(const NodeTypeDesc& desc, const void* owner, std::st
             error = "node type \"" + name + "\": output parameter \"" + param.name + "\" cannot be text";
             return false;
         }
-        ParamSpec spec{param.name,          param.type,
+        ParamSpec spec{param.name,
+                       param.type,
                        param.label != nullptr ? param.label : param.name,
-                       param.defaultNumber, TextOrEmpty(param.defaultText),
-                       param.output,        SplitChoices(param.choices)};
+                       param.defaultNumber,
+                       TextOrEmpty(param.defaultText),
+                       param.output,
+                       SplitChoices(param.choices)};
         if (!spec.choices.empty() &&
             (param.type != ValueType::Text ||
              std::find(spec.choices.begin(), spec.choices.end(), spec.defaultText) == spec.choices.end())) {

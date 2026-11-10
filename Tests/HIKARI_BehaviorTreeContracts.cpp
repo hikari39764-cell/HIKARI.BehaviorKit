@@ -30,6 +30,8 @@ struct Trace {
     std::map<std::string, int> started{};
     std::map<std::string, int> finished{};
     std::map<std::string, int> aborted{};
+    // 走り始めた順の名前（空白区切り）。
+    std::string order{};
 };
 
 struct WorkState {
@@ -43,7 +45,10 @@ constexpr ParamDesc kWorkParams[] = {{"name", ValueType::Text, "Name"},
                                      {"result", ValueType::Bool, "Result", 1.0}};
 
 void StartWork(INodeContext& context, void*, void* user) noexcept {
-    ++static_cast<Trace*>(user)->started[std::string(context.ParamText(kWorkName))];
+    auto& trace = *static_cast<Trace*>(user);
+    const std::string name(context.ParamText(kWorkName));
+    ++trace.started[name];
+    trace.order += (trace.order.empty() ? "" : " ") + name;
 }
 Status TickWork(INodeContext& context, void* state, void*) noexcept {
     auto& work = *static_cast<WorkState*>(state);
@@ -59,6 +64,39 @@ void StopWork(INodeContext& context, void*, void* user, bool aborted) noexcept {
 
 // Test.Stuck：条件なのに Running を返す（実行器は Failure として扱う）。
 Status TickStuck(INodeContext&, void*, void*) noexcept { return Status::Running; }
+
+// Test.Twice：登記した装飾。子が二回成功するまで子を走らせ直す。子が失敗したら失敗。点数は weight の 10 倍。
+struct TwiceState {
+    int successes = 0;
+};
+constexpr ParamDesc kTwiceParams[] = {{"weight", ValueType::Float, "Weight", 1.0}};
+void StartTwice(INodeContext&, void*, void* user) noexcept { ++static_cast<Trace*>(user)->started["twice"]; }
+Status TickTwice(INodeContext& context, void* state, void*) noexcept {
+    auto& twice = *static_cast<TwiceState*>(state);
+    const Status child = context.TickChild();
+    // 同じ回に二度呼んでも子は一度しか進まない。
+    if (context.TickChild() != child) {
+        return Status::Failure;
+    }
+    if (child == Status::Success) {
+        return ++twice.successes >= 2 ? Status::Success : Status::Running;
+    }
+    return child;
+}
+void StopTwice(INodeContext&, void*, void* user, bool aborted) noexcept {
+    auto& trace = *static_cast<Trace*>(user);
+    ++(aborted ? trace.aborted : trace.finished)["twice"];
+}
+float ScoreTwice(INodeContext& context, void*) noexcept {
+    // 点数を読む時は子を進められない。
+    return context.TickChild() == Status::Failure ? context.ParamFloat(0u) * 10.0f : -1.0f;
+}
+
+// Test.GiveUp：登記した装飾。子を一回進め、子が走っていても失敗を返す（実行器が子を打ち切る）。
+Status TickGiveUp(INodeContext& context, void*, void*) noexcept {
+    context.TickChild();
+    return Status::Failure;
+}
 
 void RegisterTestNodes(NodeRegistry& registry, Trace& trace) {
     std::string error{};
@@ -82,6 +120,24 @@ void RegisterTestNodes(NodeRegistry& registry, Trace& trace) {
     bad.typeName = "Test.BadCondition";
     bad.stateSize = 4u;
     CHECK(!registry.Register(bad, &trace, error)); // 条件は状態を持てない
+
+    NodeTypeDesc twice{};
+    twice.kind = NodeKind::Decorator;
+    twice.typeName = "Test.Twice";
+    twice.params = kTwiceParams;
+    twice.paramCount = 1u;
+    twice.stateSize = sizeof(TwiceState);
+    twice.start = &StartTwice;
+    twice.tick = &TickTwice;
+    twice.stop = &StopTwice;
+    twice.score = &ScoreTwice;
+    twice.user = &trace;
+    CHECK(registry.Register(twice, &trace, error));
+    NodeTypeDesc giveUp{};
+    giveUp.kind = NodeKind::Decorator;
+    giveUp.typeName = "Test.GiveUp";
+    giveUp.tick = &TickGiveUp;
+    CHECK(registry.Register(giveUp, &trace, error));
 }
 
 std::shared_ptr<const CompiledTree> Compile(const NodeRegistry& registry, std::string_view json,
@@ -115,6 +171,13 @@ Value BoolValue(bool value) {
     Value result{};
     result.type = ValueType::Bool;
     result.boolean = value;
+    return result;
+}
+
+Value FloatValue(float value) {
+    Value result{};
+    result.type = ValueType::Float;
+    result.number = value;
     return result;
 }
 
@@ -158,7 +221,20 @@ void CheckErrors(const NodeRegistry& registry) {
                     {"id": 1, "type": "Parallel", "params": {"policy": "some"}, "children": [2]},
                     {"id": 2, "type": "Succeed"}]})",
                 "must be one of: all any");
+    ExpectError(registry,
+                R"({"formatVersion": 2, "root": 1, "nodes": [
+                    {"id": 1, "type": "Selector", "params": {"order": "best"}, "children": [2]},
+                    {"id": 2, "type": "Succeed"}]})",
+                "must be one of: fixed random utility");
     ExpectError(registry, R"({"formatVersion": 2, "root": 1, "nodes": [{"id": 1, "type": "Inverter"}]})",
+                "exactly one child");
+    // 登記した装飾も子は一つ。
+    ExpectError(registry, R"({"formatVersion": 2, "root": 1, "nodes": [{"id": 1, "type": "Test.Twice"}]})",
+                "exactly one child");
+    ExpectError(registry,
+                R"({"formatVersion": 2, "root": 1, "nodes": [
+                    {"id": 1, "type": "Score", "children": [2, 3]}, {"id": 2, "type": "Succeed"},
+                    {"id": 3, "type": "Fail"}]})",
                 "exactly one child");
     ExpectError(registry, R"({"formatVersion": 2, "root": 1, "nodes": [{"id": 1, "type": "Sequence"}]})",
                 "at least one child");
@@ -189,17 +265,19 @@ void CheckSequenceAndSelector(const NodeRegistry& registry, Trace& trace) {
         {"id": 1, "type": "Sequence", "children": [2, 3]},
         {"id": 2, "type": "Test.Work", "params": {"name": "a", "ticks": 2}},
         {"id": 3, "type": "Test.Work", "params": {"name": "b"}}]})"));
-    CHECK(!sequence.RanInLastTick(0u));
+    CHECK(!sequence.RanInLastTick(0u) && sequence.State(0u) == NodeState::Idle);
     CHECK(Step(sequence) == Status::Running);
-    CHECK(sequence.IsNodeRunning(1u) && !sequence.IsNodeRunning(2u));
-    // 編集器の表示用：この回に進められたのは根と a だけ。
+    // 節の様子：根は子を待ち、a は走り、b はまだ。この回に進められたのは根と a だけ。
+    CHECK(sequence.State(0u) == NodeState::Waiting && sequence.State(1u) == NodeState::Running &&
+          sequence.State(2u) == NodeState::Idle);
     CHECK(sequence.RanInLastTick(0u) && sequence.RanInLastTick(1u) && !sequence.RanInLastTick(2u));
     CHECK(Step(sequence) == Status::Success);
-    CHECK(sequence.RanInLastTick(2u) && sequence.LastStatus(2u) == Status::Success && !sequence.IsNodeRunning(0u));
+    CHECK(sequence.RanInLastTick(2u) && sequence.State(1u) == NodeState::Success &&
+          sequence.State(2u) == NodeState::Success && sequence.State(0u) == NodeState::Success);
     CHECK(trace.started["a"] == 1 && trace.finished["a"] == 1 && trace.finished["b"] == 1);
-    // 根が終わったら、次の回は最初から。
+    // 根が終わったら、次の回は最初から。前の回の様子は消える。
     CHECK(Step(sequence) == Status::Running);
-    CHECK(trace.started["a"] == 2);
+    CHECK(trace.started["a"] == 2 && sequence.State(2u) == NodeState::Idle);
 
     // 選択：最初の子が失敗し、二番目が成功する。失敗する子が先頭なら順序は失敗する。
     TreeInstance selector{};
@@ -248,9 +326,12 @@ void CheckReactiveInterrupt(const NodeRegistry& registry, Trace& trace) {
     CHECK(guard.SetKey("alert", BoolValue(false)));
     CHECK(Step(guard) == Status::Running);
     CHECK(trace.aborted["chase"] == 1 && trace.started["patrol"] == 2);
+    // 打ち切られた追跡は Aborted、確かめ直した条件は Failure として見える。
+    CHECK(guard.State(3u) == NodeState::Aborted && guard.State(2u) == NodeState::Failure &&
+          guard.State(1u) == NodeState::Failure && guard.State(4u) == NodeState::Running);
     // 全部打ち切る。
     guard.Abort({});
-    CHECK(trace.aborted["patrol"] == 2 && !guard.IsNodeRunning(0u));
+    CHECK(trace.aborted["patrol"] == 2 && guard.State(0u) == NodeState::Aborted);
 }
 
 void CheckParallelAndDecorators(const NodeRegistry& registry, Trace& trace) {
@@ -318,6 +399,180 @@ void CheckParallelAndDecorators(const NodeRegistry& registry, Trace& trace) {
         {"id": 1, "type": "Wait", "params": {"seconds": 0.3}}]})"));
     CHECK(Step(wait, 0.2f) == Status::Running);
     CHECK(Step(wait, 0.2f) == Status::Success);
+}
+
+// 子を回す順（utility、random）、Score、Chance。
+void CheckOrdersAndChance(const NodeRegistry& registry, Trace& trace) {
+    // utility：点数の高い順。同じ点数は左が先。Score の無い子は 1 点、0 以下は外す。
+    trace = {};
+    TreeInstance utility{};
+    utility.Bind(Compile(registry, R"({"formatVersion": 2, "root": 1, "nodes": [
+        {"id": 1, "type": "Sequence", "params": {"order": "utility"}, "children": [2, 3, 4, 5]},
+        {"id": 2, "type": "Score", "params": {"score": 1}, "children": [6]},
+        {"id": 3, "type": "Score", "params": {"score": 3}, "children": [7]},
+        {"id": 4, "type": "Score", "params": {"score": 0}, "children": [8]},
+        {"id": 5, "type": "Test.Work", "params": {"name": "plain"}},
+        {"id": 6, "type": "Test.Work", "params": {"name": "low"}},
+        {"id": 7, "type": "Test.Work", "params": {"name": "high"}},
+        {"id": 8, "type": "Test.Work", "params": {"name": "out"}}]})"));
+    CHECK(Step(utility) == Status::Success);
+    CHECK(trace.order == "high low plain" && trace.started["out"] == 0);
+
+    // utility の選択：一番の子が失敗したら次の子。
+    trace = {};
+    TreeInstance fallback{};
+    fallback.Bind(Compile(registry, R"({"formatVersion": 2, "root": 1, "nodes": [
+        {"id": 1, "type": "Selector", "params": {"order": "utility"}, "children": [2, 3]},
+        {"id": 2, "type": "Score", "params": {"score": 2}, "children": [4]},
+        {"id": 3, "type": "Score", "params": {"score": 5}, "children": [5]},
+        {"id": 4, "type": "Test.Work", "params": {"name": "good"}},
+        {"id": 5, "type": "Test.Work", "params": {"name": "bad", "result": false}}]})"));
+    CHECK(Step(fallback) == Status::Success && trace.order == "bad good");
+
+    // 点数を黒板から読む。reactive なら毎回読み直し、良い方が上回ると走っている子を打ち切って乗り換える。
+    const char* switching = R"({"formatVersion": 2, "blackboard": [
+        {"name": "x", "type": "float", "value": 2}, {"name": "y", "type": "float", "value": 1}], "root": 1, "nodes": [
+        {"id": 1, "type": "Selector", "params": {"order": "utility", "reactive": REACTIVE}, "children": [2, 3]},
+        {"id": 2, "type": "Score", "params": {"score": {"key": "x"}}, "children": [4]},
+        {"id": 3, "type": "Score", "params": {"score": {"key": "y"}}, "children": [5]},
+        {"id": 4, "type": "Test.Work", "params": {"name": "x", "ticks": 100}},
+        {"id": 5, "type": "Test.Work", "params": {"name": "y", "ticks": 100}}]})";
+    for (const bool reactive : {true, false}) {
+        trace = {};
+        std::string json = switching;
+        json.replace(json.find("REACTIVE"), 8u, reactive ? "true" : "false");
+        TreeInstance chooser{};
+        chooser.Bind(Compile(registry, json));
+        CHECK(Step(chooser) == Status::Running && trace.order == "x");
+        CHECK(chooser.SetKey("y", FloatValue(3.0f)));
+        CHECK(Step(chooser) == Status::Running);
+        CHECK(reactive ? trace.aborted["x"] == 1 && trace.order == "x y"
+                       : trace.aborted["x"] == 0 && trace.order == "x");
+    }
+
+    // random：点数に比例した確率で先に選ばれる。0 点は選ばれない。
+    trace = {};
+    TreeInstance lottery{};
+    lottery.Seed(12345u);
+    lottery.Bind(Compile(registry, R"({"formatVersion": 2, "root": 1, "nodes": [
+        {"id": 1, "type": "Selector", "params": {"order": "random"}, "children": [2, 3, 4]},
+        {"id": 2, "type": "Score", "params": {"score": 3}, "children": [5]},
+        {"id": 3, "type": "Score", "params": {"score": 1}, "children": [6]},
+        {"id": 4, "type": "Score", "params": {"score": 0}, "children": [7]},
+        {"id": 5, "type": "Test.Work", "params": {"name": "a"}},
+        {"id": 6, "type": "Test.Work", "params": {"name": "b"}},
+        {"id": 7, "type": "Test.Work", "params": {"name": "never"}}]})"));
+    constexpr int kDraws = 400;
+    for (int draw = 0; draw < kDraws; ++draw) {
+        Step(lottery);
+    }
+    CHECK(trace.started["a"] + trace.started["b"] == kDraws && trace.started["never"] == 0);
+    CHECK(trace.started["a"] > kDraws * 65 / 100 && trace.started["a"] < kDraws * 85 / 100);
+
+    // random の順序：一回ごとに並びが変わり、全部の子が一度ずつ走る。
+    trace = {};
+    TreeInstance shuffle{};
+    shuffle.Seed(7u);
+    shuffle.Bind(Compile(registry, R"({"formatVersion": 2, "root": 1, "nodes": [
+        {"id": 1, "type": "Sequence", "params": {"order": "random"}, "children": [2, 3]},
+        {"id": 2, "type": "Test.Work", "params": {"name": "p"}},
+        {"id": 3, "type": "Test.Work", "params": {"name": "q"}}]})"));
+    int pFirst = 0;
+    for (int run = 0; run < 50; ++run) {
+        trace.order.clear();
+        CHECK(Step(shuffle) == Status::Success);
+        pFirst += trace.order == "p q" ? 1 : 0;
+        CHECK(trace.order == "p q" || trace.order == "q p");
+    }
+    CHECK(pFirst > 10 && pFirst < 40);
+
+    // Parallel：0 点の子は参加しない。参加する子が無い組み合わせは失敗。
+    trace = {};
+    TreeInstance together{};
+    together.Bind(Compile(registry, R"({"formatVersion": 2, "root": 1, "nodes": [
+        {"id": 1, "type": "Parallel", "params": {"order": "utility"}, "children": [2, 3, 4]},
+        {"id": 2, "type": "Score", "params": {"score": 0}, "children": [5]},
+        {"id": 3, "type": "Test.Work", "params": {"name": "p1"}},
+        {"id": 4, "type": "Test.Work", "params": {"name": "p2", "ticks": 2}},
+        {"id": 5, "type": "Test.Work", "params": {"name": "skip"}}]})"));
+    CHECK(Step(together) == Status::Running);
+    CHECK(Step(together) == Status::Success && trace.started["skip"] == 0 && trace.started["p1"] == 1);
+    for (const char* type : {"Selector", "Sequence", "Parallel"}) {
+        TreeInstance empty{};
+        empty.Bind(Compile(registry, std::string(R"({"formatVersion": 2, "root": 1, "nodes": [
+            {"id": 1, "type": ")") + type +
+                                         R"(", "params": {"order": "random"}, "children": [2]},
+            {"id": 2, "type": "Score", "params": {"score": -1}, "children": [3]},
+            {"id": 3, "type": "Succeed"}]})"));
+        CHECK(Step(empty) == Status::Failure);
+    }
+
+    // Chance：確率で成功する。
+    const auto successes = [&](float chance) {
+        TreeInstance coin{};
+        coin.Seed(99u);
+        coin.Bind(Compile(registry, R"({"formatVersion": 2, "root": 1, "nodes": [
+            {"id": 1, "type": "Chance", "params": {"chance": )" +
+                                        std::to_string(chance) + "}}]}"));
+        int count = 0;
+        for (int toss = 0; toss < 1000; ++toss) {
+            count += Step(coin) == Status::Success ? 1 : 0;
+        }
+        return count;
+    };
+    CHECK(successes(0.0f) == 0 && successes(1.0f) == 1000);
+    const int some = successes(0.3f);
+    CHECK(some > 240 && some < 360);
+}
+
+// ゲームのコードが登記する装飾：子を進める、点数を付ける、打ち切りの伝わり方、節の様子。
+void CheckCustomDecorators(const NodeRegistry& registry, Trace& trace) {
+    trace = {};
+    TreeInstance twice{};
+    twice.Bind(Compile(registry, R"({"formatVersion": 2, "root": 1, "nodes": [
+        {"id": 1, "type": "Test.Twice", "children": [2]},
+        {"id": 2, "type": "Test.Work", "params": {"name": "inner", "ticks": 2}}]})"));
+    CHECK(Step(twice) == Status::Running && twice.State(0u) == NodeState::Waiting);
+    CHECK(Step(twice) == Status::Running && twice.State(0u) == NodeState::Running);
+    CHECK(Step(twice) == Status::Running);
+    CHECK(Step(twice) == Status::Success);
+    CHECK(trace.started["inner"] == 2 && trace.finished["inner"] == 2 && trace.started["twice"] == 1 &&
+          trace.finished["twice"] == 1);
+
+    // 登記した装飾の score を親が読む（weight 0.5 → 5 点で、3 点の子より先）。
+    trace = {};
+    TreeInstance scored{};
+    scored.Bind(Compile(registry, R"({"formatVersion": 2, "root": 1, "nodes": [
+        {"id": 1, "type": "Selector", "params": {"order": "utility"}, "children": [2, 3]},
+        {"id": 2, "type": "Score", "params": {"score": 3}, "children": [4]},
+        {"id": 3, "type": "Test.Twice", "params": {"weight": 0.5}, "children": [5]},
+        {"id": 4, "type": "Test.Work", "params": {"name": "w2"}},
+        {"id": 5, "type": "Test.Work", "params": {"name": "w1"}}]})"));
+    CHECK(Step(scored) == Status::Running && trace.order == "w1");
+
+    // 上の節に打ち切られると、装飾の子が先に打ち切られ、装飾の stop も aborted で呼ばれる。
+    trace = {};
+    TreeInstance race{};
+    race.Bind(Compile(registry, R"({"formatVersion": 2, "root": 1, "nodes": [
+        {"id": 1, "type": "Parallel", "params": {"policy": "any"}, "children": [2, 3]},
+        {"id": 2, "type": "Test.Twice", "children": [4]},
+        {"id": 3, "type": "Test.Work", "params": {"name": "quick", "ticks": 2}},
+        {"id": 4, "type": "Test.Work", "params": {"name": "slow", "ticks": 50}}]})"));
+    CHECK(Step(race) == Status::Running);
+    CHECK(Step(race) == Status::Success);
+    CHECK(trace.aborted["twice"] == 1 && trace.aborted["slow"] == 1);
+    CHECK(race.State(1u) == NodeState::Aborted && race.State(2u) == NodeState::Aborted &&
+          race.State(3u) == NodeState::Success && race.State(0u) == NodeState::Success);
+
+    // 装飾が子を待たずに終わると、走っている子は打ち切られる。
+    trace = {};
+    TreeInstance giveUp{};
+    giveUp.Bind(Compile(registry, R"({"formatVersion": 2, "root": 1, "nodes": [
+        {"id": 1, "type": "Test.GiveUp", "children": [2]},
+        {"id": 2, "type": "Test.Work", "params": {"name": "dropped", "ticks": 5}}]})"));
+    CHECK(Step(giveUp) == Status::Failure);
+    CHECK(trace.aborted["dropped"] == 1 && giveUp.State(1u) == NodeState::Aborted &&
+          giveUp.State(0u) == NodeState::Failure);
 }
 
 void CheckBlackboard(const NodeRegistry& registry) {
@@ -509,13 +764,15 @@ int main() {
     CheckSequenceAndSelector(registry, trace);
     CheckReactiveInterrupt(registry, trace);
     CheckParallelAndDecorators(registry, trace);
+    CheckOrdersAndChance(registry, trace);
+    CheckCustomDecorators(registry, trace);
     CheckBlackboard(registry);
     CheckSubtreeAndSharing(registry, trace);
     CheckSerialization();
     CheckEditorModel(registry);
     // 登記を外すと版が進み、種類は見つからなくなる（編訳済みの樹は作り直しになる）。
     const uint64_t registered = registry.Revision();
-    CHECK(registry.Unregister(&trace) == 2u && registry.Revision() != registered &&
+    CHECK(registry.Unregister(&trace) == 4u && registry.Revision() != registered &&
           registry.Find("Test.Work") == nullptr);
     CHECK(registry.Find("Sequence") != nullptr && registry.Find("Wait") != nullptr);
     std::printf(gFailures == 0 ? "behavior tree contracts passed\n" : "behavior tree contracts FAILED: %d\n",

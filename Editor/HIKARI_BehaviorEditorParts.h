@@ -23,12 +23,11 @@ std::unique_ptr<EDITOR_PROJECT::IEditorWorkspace> CreateTreeWorkspace(std::share
 std::shared_ptr<void> RegisterTreeOperations(EDITOR_PROJECT::IEditorOperationRegistrar& registrar,
                                              std::shared_ptr<TreeEditor> editor);
 
-enum class NodeRunState : uint8_t {
-    // 一番新しい Tick で進められていない。
-    Idle,
-    Running,
-    Succeeded,
-    Failed,
+// 樹の一つの節の、Play 中の様子。
+struct NodeRun {
+    NodeState state = NodeState::Idle;
+    // 一番新しい Tick で進められた。
+    bool ticked = false;
 };
 
 // Play 中、開いている樹を走らせている部品一つの実行状態を、樹の節（資産の中の id）へ写したもの。
@@ -39,7 +38,8 @@ struct RunView {
     size_t userCount = 0u;
     // 場景で選ばれている物体を見ている（そうでなければ最初に見つかった部品）。
     bool followsSelection = false;
-    std::unordered_map<uint32_t, NodeRunState> nodes{};
+    // 載っていない節は Idle。
+    std::unordered_map<uint32_t, NodeRun> nodes{};
 };
 
 // 樹は、部品が直接使っていても、他の樹に埋め込まれて（Subtree）走っていてもよい。埋め込んだ先の節の状態は、

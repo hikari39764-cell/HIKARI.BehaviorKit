@@ -73,8 +73,19 @@ HIKARI 引擎的行为树模块：角色按一棵“行为树”决定现在做�
 - **下边**：问题列表。会让树跑不起来的错误（子节点数量不对、参数指向没声明的变量……）和警告（没连到树上的节点）都列在这里，
   点一条就选中出问题的节点。有错误的树也可以先保存，之后接着改。
 
-**Play 的时候**：在场景里选中一个带 Behavior Tree 组件的角色，再回到工作区，图上会标出它现在跑到哪里——正在执行的节点和连线高亮，
-这一拍成功和失败的节点用不同颜色，黑板下面显示它现在的变量值。没选中角色时显示第一个在用这棵树的角色。
+**Play 的时候**：在场景里选中一个带 Behavior Tree 组件的角色，再回到工作区，图上会标出它现在跑到哪里。
+每个节点有六种状态，标在节点标题右边，并用颜色区分：
+
+| 状态 | 意思 | 颜色 |
+| --- | --- | --- |
+| （不标） 未开始 | 这一轮还没走到它 | 无 |
+| `Running` 执行中 | 它自己在做事（动作节点，或者没在等子节点的装饰节点） | 黄 |
+| `Waiting` 等待子节点 | 它的子节点在执行，它在等结果 | 黄 |
+| `Success` 成功 / `Failure` 失败 | 这一轮里它已经给出了结果 | 绿 / 红 |
+| `Aborted` 被打断 | 执行到一半被上面的节点打断（比如优先的分支接管了） | 橙 |
+
+“一轮”是从根节点开始到根节点给出结果为止；根节点给出结果后，下一拍开始新的一轮，所有节点回到“未开始”。
+正在执行的连线也高亮。黑板下面显示它现在的变量值。没选中角色时显示第一个在用这棵树的角色。
 Play 中改树并保存，正在跑的角色马上换成新的树（从头开始）。
 
 ## 让智能体搭树
@@ -90,7 +101,7 @@ Play 中改树并保存，正在跑的角色马上换成新的树（从头开始
 | `behaviortree.set_param` | 改一个参数；`{"key": "变量名"}` 表示用黑板变量，`null` 恢复默认 |
 | `behaviortree.set_key` `remove_key` | 加、改、删黑板变量 |
 | `behaviortree.arrange` `undo` | 重新排版；撤销或重做 |
-| `behaviortree.run_state` | Play 时读出一个角色跑到哪里：哪些节点在执行、这一拍谁成功谁失败、黑板的值 |
+| `behaviortree.run_state` | Play 时读出一个角色跑到哪里：这一轮每个节点的状态（`running`、`waiting`、`success`、`failure`、`aborted`；没列出的是还没开始）、这一拍有没有走到它（`ticked`）、黑板的值 |
 
 每个改树的操作都会返回当前的问题列表，写错了马上知道。`new` 和 `save` 会写项目文件，需要用户批准。
 
@@ -126,6 +137,7 @@ Play 中改树并保存，正在跑的角色马上换成新的树（从头开始
 | `Sequence` | 依次做，一个失败就失败 |
 | `Selector` | 依次试，一个成功就成功 |
 | `Parallel` | 一起做；`policy` 为 `all` 或 `any` |
+| `Score` | 给子节点打分，供 `order` 为 `utility` / `random` 的上级节点排序；分数可以用黑板变量 |
 | `Inverter` `ForceSuccess` `ForceFailure` | 改写子节点的结果 |
 | `Repeat` | 子节点成功后再来，`count` 次（0 为一直） |
 | `Cooldown` | 子节点做完后 `seconds` 秒内直接失败 |
@@ -133,6 +145,7 @@ Play 中改树并保存，正在跑的角色马上换成新的树（从头开始
 | `Subtree` | 把另一个树资产嵌进来，同名变量共用 |
 | `Wait` | 等 `seconds` 秒 |
 | `SetVariable` `CheckVariable` | 写、比较黑板变量 |
+| `Chance` | 按概率成功（`chance` 0～1），每个角色各掷各的 |
 | `Succeed` `Fail` | 直接成功、失败 |
 | `MoveToObject` `MoveToPosition` | 朝物体或位置移动，到 `arriveDistance` 以内成功；`useNavigation` 走导航路径 |
 | `IsObjectNear` `IsPositionNear` | 距离判断 |
@@ -143,6 +156,33 @@ Play 中改树并保存，正在跑的角色马上换成新的树（从头开始
 
 `Sequence` 和 `Selector` 的 `reactive`：打开后每次都从第一个子节点重新判断，前面的条件变了就打断后面正在做的事
 （“看见玩家就放下巡逻去追”要靠它；追击那一支里的 `Sequence` 也要打开，否则追的过程中不会再看条件）。
+
+### 随机和效用：`order`
+
+`Sequence`、`Selector`、`Parallel` 都有 `order` 参数，决定子节点按什么顺序走。不用另找“随机选择”“效用选择”之类的节点，
+在同一个节点上切换就行：
+
+| `order` | 顺序 | 典型用法 |
+| --- | --- | --- |
+| `fixed`（默认） | 从左到右 | 普通的优先级、步骤 |
+| `random` | 每次开始时重新抽一个顺序。子节点套了 `Score` 时按分数加权：分数 3 的比分数 1 的先被抽到的机会大三倍 | 随机选招式（`Selector`）、随机顺序巡逻点（`Sequence`） |
+| `utility` | 分数高的先走 | 按需求选行为：饿了吃饭、受伤了躲（`Selector`） |
+
+- 分数来自子节点外面套的 `Score`（游戏登记的节点也可以自己给分，见下面）。没打分的子节点算 1 分；0 分或负分的子节点这次不参加。
+  一个能参加的子节点都没有时，该节点直接失败。
+- 分数可以填黑板变量（`{"key": "hunger"}`）：游戏代码或别的节点改变量，选择就跟着变。
+- `utility` 加上 `reactive`：每一拍都重新看分数，分数更高的分支出现时打断正在做的那支换过去。不加 `reactive` 时，只在开始时排一次。
+- `random` 的顺序只在节点开始时抽一次，执行中途不会换；每个角色有自己的随机数，不会大家都一样。
+- `Parallel` 的 `order` 只决定同一拍里谁先走、谁不参加（0 分）。
+
+例：一个敌人按血量和距离选行为（`hp_low`、`threat` 是游戏代码每帧写进黑板的分数）：
+
+```
+Selector (order: utility, reactive: true)
+├─ Score (score: [hp_low])  → Flee
+├─ Score (score: [threat])  → Attack
+└─ Score (score: 0.1)       → Patrol
+```
 
 两点要注意：
 
@@ -189,11 +229,44 @@ void RegisterMyNodes() {    // 在模块都加载之后调用，例如系统的 
 
 - 条件节点（`Condition`）一次调用就给出成功或失败；动作节点（`Action`）可以返回 `Running`，下次接着被调用，
   还可以带每个角色一份的状态（`stateSize`）和开始、结束、被打断时的回调。
+- 装饰节点（`Decorator`）带一个子节点，在 `tick` 里用 `context.TickChild()` 推进子节点，再决定自己返回什么（见下面的例子）。
+- 任何节点都可以给 `score`：上级节点的 `order` 是 `utility` / `random` 时用它排序（`Score` 节点就是这样实现的）。
+  `score` 在节点没执行时也会被调用，只能读参数、黑板和世界，不能推进子节点。
+- 要随机数用 `context.Random()`（0～1），每个角色一串，不要用 `rand()`。
 - 登记失败（名字重复、行为树模块没装）时 `Register` 返回 false，原因用 `FindBehaviorApi()->copyLastError` 取。
 - 取消登记时所有正在跑的树会回到开头。
 - 节点要在编辑器打开项目时就登记好（上面的 `OnWorldAttached` 满足），这样编辑树的时候才看得到、才不会被当成不认识的节点。
-- 这个头文件的接口版本是 3（2：参数表多了“固定选项”；3：多了由游戏代码推进树的 `tickObject`）。换了新的插件包之后，
-  用到它的游戏代码要重新编一次；引擎的项目构建会自己发现插件包变了。
+- 这个头文件的接口版本是 4（2：参数表多了“固定选项”；3：多了由游戏代码推进树的 `tickObject`；4：装饰节点、`score`、
+  `Random`）。换了新的插件包之后，用到它的游戏代码要重新编一次；引擎的项目构建会自己发现插件包变了。
+
+自定义装饰节点的例子：子节点失败时最多重试 `tries` 次，并按角色的怒气给自己打分：
+
+```cpp
+struct RetryState { int64_t failures; };
+constexpr ParamDesc kRetryParams[] = {{"tries", ValueType::Int, "Tries", 3.0},
+                                      {"anger", ValueType::Float, "Anger", 0.0}};
+
+Status TickRetry(INodeContext& context, void* state, void*) noexcept {
+    const Status child = context.TickChild();               // 推进子节点（同一拍里只推进一次）
+    if (child == Status::Failure && ++static_cast<RetryState*>(state)->failures < context.ParamInt(0u)) {
+        return Status::Running;                              // 下一拍子节点从头再来
+    }
+    return child;                                            // 自己返回不是 Running 时，还在跑的子节点会被打断
+}
+float ScoreRetry(INodeContext& context, void*) noexcept { return context.ParamFloat(1u); }
+
+NodeTypeDesc desc{};
+desc.kind = NodeKind::Decorator;
+desc.typeName = "MyGame.Retry";
+desc.displayName = "Retry";
+desc.category = "My Game";
+desc.params = kRetryParams;
+desc.paramCount = 2u;
+desc.stateSize = sizeof(RetryState);                         // 开始时清零
+desc.tick = &TickRetry;
+desc.score = &ScoreRetry;
+gNodes.Register(desc);
+```
 
 ## 由游戏代码推进
 

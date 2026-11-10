@@ -10,9 +10,9 @@
 
 namespace HIKARI::BEHAVIOR {
 
-// 子を持つ節は実行器が直接進める（子の打ち切りと再開が実行器の仕事なので、外からは登記できない）。
+// 実行器が直接進める節（None 以外）。None は登記された関数を呼ぶ節（葉と、登記された Decorator）。
 enum class BuiltinKind : uint8_t {
-    None, // 葉：登記された関数を呼ぶ
+    None,
     Sequence,
     Selector,
     Parallel,
@@ -49,12 +49,18 @@ struct NodeType {
     void (*start)(INodeContext&, void*, void*) noexcept = nullptr;
     Status (*tick)(INodeContext&, void*, void*) noexcept = nullptr;
     void (*stop)(INodeContext&, void*, void*, bool) noexcept = nullptr;
+    float (*score)(INodeContext&, void*) noexcept = nullptr;
     void* user = nullptr;
     const void* owner = nullptr;
 
-    bool IsLeaf() const noexcept { return builtin == BuiltinKind::None; }
+    // 登記された関数を呼ぶ節（葉と、登記された Decorator）。
+    bool IsRegistered() const noexcept { return builtin == BuiltinKind::None; }
+    bool IsLeaf() const noexcept { return IsRegistered() && kind != NodeKind::Decorator; }
     // 子を一つだけ持つ節。
-    bool IsDecorator() const noexcept { return builtin >= BuiltinKind::Inverter && builtin <= BuiltinKind::TimeLimit; }
+    bool IsDecorator() const noexcept {
+        return (builtin >= BuiltinKind::Inverter && builtin <= BuiltinKind::TimeLimit) ||
+               (IsRegistered() && kind == NodeKind::Decorator);
+    }
 };
 
 // 節の種類の表。内蔵の節（子を持つ節と、引擎に触れない葉）は最初から入っている。
@@ -80,7 +86,7 @@ private:
     uint64_t revision_ = 1u;
 };
 
-// 引擎に触れない葉（Wait、SetVariable、CheckVariable、Succeed、Fail）。NodeRegistry の構築が呼ぶ。
+// 引擎に触れない節（Wait、SetVariable、CheckVariable、Chance、Succeed、Fail と、装飾の Score）。NodeRegistry の構築が呼ぶ。
 void RegisterCoreNodes(NodeRegistry& registry);
 
 } // namespace HIKARI::BEHAVIOR

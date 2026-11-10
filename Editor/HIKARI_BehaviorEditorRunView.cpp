@@ -55,7 +55,7 @@ RunView InspectRun(const OpenTree& tree, const EDITOR_PROJECT::IEditorSceneServi
     const auto shown = [&](uint16_t source) {
         return std::find(sources.begin(), sources.end(), source) != sources.end();
     };
-    // 節は親が先に並ぶ。埋め込まれた樹の中身は、最初に来る節（埋め込まれた樹の根）の結果が Subtree の節の結果になる。
+    // 節は親が先に並ぶ。
     for (uint32_t index = 0u; index < compiled.nodes.size(); ++index) {
         const CompiledNode& node = compiled.nodes[index];
         uint16_t source = node.sourceTree;
@@ -69,13 +69,9 @@ RunView InspectRun(const OpenTree& tree, const EDITOR_PROJECT::IEditorSceneServi
         if (!shown(source)) {
             continue;
         }
-        const auto [entry, first] = view.nodes.try_emplace(id, NodeRunState::Idle);
-        if (instance.IsNodeRunning(index)) {
-            entry->second = NodeRunState::Running;
-        } else if (first && instance.RanInLastTick(index) && instance.LastStatus(index) != Status::Running) {
-            // Running のまま走っていない節は、同じ Tick の中で上の節に打ち切られた物。
-            entry->second =
-                instance.LastStatus(index) == Status::Success ? NodeRunState::Succeeded : NodeRunState::Failed;
+        // 埋め込まれた樹の中身は、最初に来る節（その根）が Subtree の節の様子になる。
+        if (view.nodes.find(id) == view.nodes.end() && instance.State(index) != NodeState::Idle) {
+            view.nodes.emplace(id, NodeRun{instance.State(index), instance.RanInLastTick(index)});
         }
     }
     return view;

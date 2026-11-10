@@ -2,6 +2,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <memory>
+#include <random>
 #include <string>
 #include <string_view>
 
@@ -100,6 +101,9 @@ public:
     void OnAttach(GameComponentContext& context) override {
         world_ = context.GetWorld();
         object_ = context.GetObject();
+        // 角色ごと・Play ごとに違う乱数の系列（Chance と random の順）。
+        std::random_device device{};
+        instance_.Seed(((static_cast<uint64_t>(device()) << 32u) | device()) ^ object_.GetHandle().value);
         BehaviorLibrary::Get().AddUser(*this);
     }
 

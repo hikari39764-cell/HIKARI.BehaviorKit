@@ -1,10 +1,49 @@
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 #include <utility>
 
 #include "HIKARI_BehaviorTree.h"
 
 namespace HIKARI::BEHAVIOR {
+namespace {
+
+constexpr std::string_view kNodeStateNames[] = {"idle", "running", "waiting", "success", "failure", "aborted"};
+
+// 組み合わせの節（Sequence、Selector、Parallel）の状態の頭。後ろに子の並び（uint16_t × 子の数）が続き、
+// Parallel はさらに並びの位置ごとの結果（uint8_t × 子の数）が続く。
+struct CompositeState {
+    // 走っている子の、並びの中の位置。
+    uint16_t current = 0u;
+    // この回に参加する子の数（並びの先頭からこの数だけ）。
+    uint16_t count = 0u;
+};
+static_assert(sizeof(CompositeState) <= 8u);
+
+// 組み合わせの節の参数の番号（登記の順）。
+enum : uint32_t { kOrderedReactive = 0u, kOrderedOrder = 1u, kParallelPolicy = 0u, kParallelOrder = 1u };
+
+enum class ChildOrder : uint8_t { Fixed, Random, Utility };
+
+ChildOrder ParseOrder(std::string_view text) noexcept {
+    return text == "random" ? ChildOrder::Random : text == "utility" ? ChildOrder::Utility : ChildOrder::Fixed;
+}
+
+Status StatusOf(NodeState state) noexcept {
+    switch (state) {
+    case NodeState::Success: return Status::Success;
+    case NodeState::Running:
+    case NodeState::Waiting: return Status::Running;
+    default: return Status::Failure;
+    }
+}
+
+} // namespace
+
+std::string_view NodeStateName(NodeState state) noexcept {
+    const size_t index = static_cast<size_t>(state);
+    return index < std::size(kNodeStateNames) ? kNodeStateNames[index] : std::string_view{};
+}
 
 // 一回の Tick（または Abort）の間だけ生きる実行器。
 class TreeRunner {
@@ -16,13 +55,17 @@ public:
         const CompiledNode& node = tree_.nodes[index];
         Status status = Status::Failure;
         switch (node.type->builtin) {
-        case BuiltinKind::None: status = TickLeaf(index); break;
+        case BuiltinKind::None: status = TickRegistered(index); break;
         case BuiltinKind::Sequence: status = TickOrdered(index, Status::Success); break;
         case BuiltinKind::Selector: status = TickOrdered(index, Status::Failure); break;
         case BuiltinKind::Parallel: status = TickParallel(index); break;
         default: status = TickDecorator(index); break;
         }
-        instance_.lastStatus_[index] = static_cast<uint8_t>(status);
+        NodeState state = status == Status::Success ? NodeState::Success : NodeState::Failure;
+        if (status == Status::Running) {
+            state = AnyChildActive(node) ? NodeState::Waiting : NodeState::Running;
+        }
+        instance_.nodeStates_[index] = static_cast<uint8_t>(state);
         instance_.lastTick_[index] = instance_.tick_;
         return status;
     }
@@ -34,20 +77,22 @@ public:
         }
         const CompiledNode& node = tree_.nodes[index];
         for (uint16_t child = 0u; child < node.childCount; ++child) {
-            Abort(tree_.children[node.firstChild + child]);
+            Abort(Child(node, child));
         }
-        if (node.type->IsLeaf() && node.type->stop != nullptr) {
+        if (node.type->IsRegistered() && node.type->stop != nullptr) {
             Context context(*this, node);
             node.type->stop(context, State(node), node.type->user, true);
         }
         instance_.active_[index] = 0u;
+        instance_.nodeStates_[index] = static_cast<uint8_t>(NodeState::Aborted);
     }
 
 private:
-    // 節へ渡す窓口。参数は編訳の時に並べた番号で引く。
+    // 節へ渡す窓口。参数は編訳の時に並べた番号で引く。scoring の間は子を進められない。
     class Context final : public INodeContext {
     public:
-        Context(TreeRunner& runner, const CompiledNode& node) : runner_(runner), node_(node) {}
+        Context(TreeRunner& runner, const CompiledNode& node, bool scoring = false)
+            : runner_(runner), node_(node), scoring_(scoring) {}
 
         WorldView World() const noexcept override { return runner_.host_.world; }
         ObjectView Owner() const noexcept override { return runner_.host_.owner; }
@@ -112,6 +157,20 @@ private:
                    host.writeOwnerVariable(host.writeOwnerVariableUser, variableId, value);
         }
 
+        float Random() noexcept override { return runner_.NextRandom(); }
+
+        Status TickChild() noexcept override {
+            if (scoring_ || !node_.type->IsDecorator() || node_.childCount == 0u) {
+                return Status::Failure;
+            }
+            const uint32_t child = runner_.Child(node_, 0u);
+            TreeInstance& instance = runner_.instance_;
+            if (instance.lastTick_[child] == instance.tick_) {
+                return StatusOf(static_cast<NodeState>(instance.nodeStates_[child]));
+            }
+            return runner_.Tick(child);
+        }
+
     private:
         const CompiledParam* Param(uint32_t index) const noexcept {
             return index < node_.type->params.size() ? &runner_.tree_.params[node_.firstParam + index] : nullptr;
@@ -135,6 +194,7 @@ private:
 
         TreeRunner& runner_;
         const CompiledNode& node_;
+        bool scoring_ = false;
     };
 
     void* State(const CompiledNode& node) { return instance_.state_.data() + node.stateOffset; }
@@ -142,9 +202,74 @@ private:
     T& StateAs(const CompiledNode& node) {
         return *reinterpret_cast<T*>(State(node));
     }
+    // 組み合わせの節の子の並び（子の番号）。
+    uint16_t* Order(const CompiledNode& node) {
+        return reinterpret_cast<uint16_t*>(static_cast<uint8_t*>(State(node)) + 8u);
+    }
     uint32_t Child(const CompiledNode& node, uint32_t slot) const { return tree_.children[node.firstChild + slot]; }
 
-    Status TickLeaf(uint32_t index) {
+    bool AnyChildActive(const CompiledNode& node) const {
+        for (uint32_t slot = 0u; slot < node.childCount; ++slot) {
+            if (instance_.active_[Child(node, slot)] != 0u) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // splitmix64 で次の値を取り、上位 24 ビットを [0, 1) にする。
+    float NextRandom() noexcept {
+        uint64_t value = (instance_.random_ += 0x9E3779B97F4A7C15ull);
+        value = (value ^ (value >> 30u)) * 0xBF58476D1CE4E5B9ull;
+        value = (value ^ (value >> 27u)) * 0x94D049BB133111EBull;
+        value ^= value >> 31u;
+        return static_cast<float>(value >> 40u) * (1.0f / 16777216.0f);
+    }
+
+    // 子の点数：種類の score（Score の節なら参数）、無ければ 1。数でない値は 0（外す）。
+    float ChildScore(uint32_t child) {
+        const CompiledNode& node = tree_.nodes[child];
+        if (node.type->score == nullptr) {
+            return 1.0f;
+        }
+        Context context(*this, node, true);
+        const float score = node.type->score(context, node.type->user);
+        return std::isfinite(score) ? score : 0.0f;
+    }
+
+    // この回に子を回す順を並びへ書き、参加する子の数を返す。fixed は左から全部。utility は点数の高い順、
+    // random は点数を重みにした抽選の順（点数 w の子が先頭に来る確率は w / 合計）。どちらも 0 以下は外す。
+    uint16_t BuildOrder(const CompiledNode& node, ChildOrder order) {
+        uint16_t* slots = Order(node);
+        float* keys = instance_.orderKeys_.data();
+        uint16_t count = 0u;
+        for (uint16_t slot = 0u; slot < node.childCount; ++slot) {
+            if (order != ChildOrder::Fixed) {
+                const float score = ChildScore(Child(node, slot));
+                if (!(score > 0.0f)) {
+                    continue;
+                }
+                // 重み付きの抽選は、u^(1/w) の大きい順に並べるのと同じ（log を取って比べる）。
+                keys[slot] = order == ChildOrder::Utility ? score : std::log(1.0f - NextRandom()) / score;
+            }
+            slots[count++] = slot;
+        }
+        if (order != ChildOrder::Fixed) {
+            // 子は少ないので挿入で並べる（同じ値は左の子が先、確保もしない）。
+            for (uint16_t index = 1u; index < count; ++index) {
+                const uint16_t moving = slots[index];
+                uint16_t place = index;
+                for (; place > 0u && keys[slots[place - 1u]] < keys[moving]; --place) {
+                    slots[place] = slots[place - 1u];
+                }
+                slots[place] = moving;
+            }
+        }
+        return count;
+    }
+
+    // 登記された節：葉と Decorator。
+    Status TickRegistered(uint32_t index) {
         const CompiledNode& node = tree_.nodes[index];
         const NodeType& type = *node.type;
         Context context(*this, node);
@@ -161,6 +286,10 @@ private:
             status = Status::Failure;
         }
         if (status != Status::Running) {
+            // 終わった Decorator の子がまだ走っていれば、先に打ち切る。
+            for (uint32_t slot = 0u; slot < node.childCount; ++slot) {
+                Abort(Child(node, slot));
+            }
             if (type.stop != nullptr) {
                 type.stop(context, state, type.user, false);
             }
@@ -170,57 +299,76 @@ private:
     }
 
     // Sequence（advanceOn = Success）と Selector（advanceOn = Failure）。子が advanceOn を返す間、次の子へ進む。
-    // reactive：毎回最初の子からやり直す。前の子が結果を変えたら、後ろで走っていた子を打ち切る。
+    // reactive：毎回並びの最初からやり直す（utility なら点数も読み直す）。走っている子以外で走っている物は打ち切る。
     Status TickOrdered(uint32_t index, Status advanceOn) {
         const CompiledNode& node = tree_.nodes[index];
-        uint16_t& current = StateAs<uint16_t>(node);
+        CompositeState& composite = StateAs<CompositeState>(node);
         Context context(*this, node);
-        const bool reactive = context.ParamBool(0u);
-        if (instance_.active_[index] == 0u) {
-            current = 0u;
+        const bool reactive = context.ParamBool(kOrderedReactive);
+        const ChildOrder order = ParseOrder(context.ParamText(kOrderedOrder));
+        const bool starting = instance_.active_[index] == 0u;
+        if (starting || (reactive && order == ChildOrder::Utility)) {
+            composite.count = BuildOrder(node, order);
+        }
+        if (starting) {
+            composite.current = 0u;
             instance_.active_[index] = 1u;
         }
-        for (uint32_t slot = reactive ? 0u : current; slot < node.childCount; ++slot) {
-            const Status status = Tick(Child(node, slot));
+        const uint16_t* slots = Order(node);
+        // 参加する子が無ければ失敗。全部 advanceOn なら advanceOn。
+        Status result = composite.count == 0u ? Status::Failure : advanceOn;
+        uint32_t running = node.childCount;
+        for (uint32_t position = reactive ? 0u : composite.current; position < composite.count; ++position) {
+            const Status status = Tick(Child(node, slots[position]));
             if (status == advanceOn) {
                 continue;
             }
-            for (uint32_t later = slot + 1u; later < node.childCount; ++later) {
-                Abort(Child(node, later));
-            }
             if (status == Status::Running) {
-                current = static_cast<uint16_t>(slot);
-                return Status::Running;
+                composite.current = static_cast<uint16_t>(position);
+                running = slots[position];
             }
-            instance_.active_[index] = 0u;
-            return status;
+            result = status;
+            break;
         }
-        instance_.active_[index] = 0u;
-        return advanceOn;
+        for (uint32_t slot = 0u; slot < node.childCount; ++slot) {
+            if (slot != running) {
+                Abort(Child(node, slot));
+            }
+        }
+        if (result != Status::Running) {
+            instance_.active_[index] = 0u;
+        }
+        return result;
     }
 
     Status TickParallel(uint32_t index) {
         enum : uint8_t { kPending, kSucceeded, kFailed };
         const CompiledNode& node = tree_.nodes[index];
-        uint8_t* results = static_cast<uint8_t*>(State(node));
+        CompositeState& composite = StateAs<CompositeState>(node);
+        const uint16_t* slots = Order(node);
+        uint8_t* results = reinterpret_cast<uint8_t*>(Order(node) + node.childCount);
         Context context(*this, node);
-        const bool any = context.ParamText(0u) == "any";
+        const bool any = context.ParamText(kParallelPolicy) == "any";
         if (instance_.active_[index] == 0u) {
+            composite.count = BuildOrder(node, ParseOrder(context.ParamText(kParallelOrder)));
             std::memset(results, kPending, node.childCount);
             instance_.active_[index] = 1u;
         }
         uint32_t succeeded = 0u;
         uint32_t failed = 0u;
-        for (uint32_t slot = 0u; slot < node.childCount; ++slot) {
-            if (results[slot] == kPending) {
-                const Status status = Tick(Child(node, slot));
-                results[slot] = status == Status::Success ? kSucceeded : status == Status::Failure ? kFailed : kPending;
+        for (uint32_t position = 0u; position < composite.count; ++position) {
+            if (results[position] == kPending) {
+                const Status status = Tick(Child(node, slots[position]));
+                results[position] = status == Status::Success   ? kSucceeded
+                                    : status == Status::Failure ? kFailed
+                                                                : kPending;
             }
-            succeeded += results[slot] == kSucceeded ? 1u : 0u;
-            failed += results[slot] == kFailed ? 1u : 0u;
+            succeeded += results[position] == kSucceeded ? 1u : 0u;
+            failed += results[position] == kFailed ? 1u : 0u;
         }
-        const bool success = any ? succeeded > 0u : succeeded == node.childCount;
-        const bool failure = any ? failed == node.childCount : failed > 0u;
+        const uint32_t count = composite.count;
+        const bool success = count != 0u && (any ? succeeded > 0u : succeeded == count);
+        const bool failure = count == 0u || (any ? failed == count : failed > 0u);
         if (!success && !failure) {
             return Status::Running;
         }
@@ -317,22 +465,28 @@ void TreeInstance::Bind(std::shared_ptr<const CompiledTree> tree) {
     tree_ = std::move(tree);
     state_.clear();
     active_.clear();
-    lastStatus_.clear();
+    nodeStates_.clear();
     lastTick_.clear();
     tick_ = 0u;
     blackboard_.clear();
+    orderKeys_.clear();
     time_ = 0.0;
     if (tree_ == nullptr) {
         return;
     }
     state_.assign(tree_->stateBytes, 0u);
     active_.assign(tree_->nodes.size(), 0u);
-    lastStatus_.assign(tree_->nodes.size(), static_cast<uint8_t>(Status::Failure));
+    nodeStates_.assign(tree_->nodes.size(), static_cast<uint8_t>(NodeState::Idle));
     lastTick_.assign(tree_->nodes.size(), 0u);
     blackboard_.reserve(tree_->keys.size());
     for (const CompiledKey& key : tree_->keys) {
         blackboard_.push_back(key.initial);
     }
+    uint16_t widest = 0u;
+    for (const CompiledNode& node : tree_->nodes) {
+        widest = (std::max)(widest, node.childCount);
+    }
+    orderKeys_.assign(widest, 0.0f);
 }
 
 Status TreeInstance::Tick(const TickHost& host) {
@@ -342,6 +496,10 @@ Status TreeInstance::Tick(const TickHost& host) {
     time_ += static_cast<double>(host.deltaSeconds);
     // 0 は「まだ一度も進めていない」の印なので飛ばす。
     tick_ = tick_ == UINT32_MAX ? 1u : tick_ + 1u;
+    // 根が走っていなければ新しい回：前の回の状態を消す。
+    if (active_[0] == 0u) {
+        std::fill(nodeStates_.begin(), nodeStates_.end(), static_cast<uint8_t>(NodeState::Idle));
+    }
     return TreeRunner(*this, host).Tick(0u);
 }
 

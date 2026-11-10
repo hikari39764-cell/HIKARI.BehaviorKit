@@ -103,10 +103,13 @@ private:
         compiled.firstChild = static_cast<uint32_t>(out_.children.size());
         compiled.childCount = static_cast<uint16_t>(children.size());
         out_.children.insert(out_.children.end(), children.begin(), children.end());
-        // 子を持つ節の状態：Parallel は子ごとの結果、他は 8 バイト（今の子の番号、回数、時刻）。
-        compiled.stateSize = type->IsLeaf()                           ? type->stateSize
-                             : type->builtin == BuiltinKind::Parallel ? compiled.childCount
-                                                                      : kStateAlignment;
+        // 登記された節は宣言した大きさ。内蔵の装飾は 8 バイト（回数、時刻）。組み合わせの節は 8 バイトの頭
+        // （今の位置、参加する子の数）と子の並び（2 バイトずつ）、Parallel はさらに子ごとの結果（1 バイトずつ）。
+        const uint32_t children32 = compiled.childCount;
+        compiled.stateSize = type->IsRegistered()  ? type->stateSize
+                             : type->IsDecorator() ? kStateAlignment
+                                                   : kStateAlignment + children32 * 2u +
+                                                         (type->builtin == BuiltinKind::Parallel ? children32 : 0u);
         compiled.stateOffset = out_.stateBytes;
         out_.stateBytes += (compiled.stateSize + kStateAlignment - 1u) / kStateAlignment * kStateAlignment;
         out_.nodes[outIndex] = compiled;
