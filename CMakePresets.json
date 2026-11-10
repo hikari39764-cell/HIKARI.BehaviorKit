@@ -1,0 +1,73 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 28,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "hikari-module-base",
+      "hidden": true,
+      "generator": "Visual Studio 17 2022",
+      "architecture": "x64",
+      "cacheVariables": {
+        "HIKARI_DIR": "$env{HIKARI_SDK_ROOT}/lib/cmake/HIKARI"
+      }
+    },
+    {
+      "name": "debug",
+      "displayName": "HIKARI Module Debug",
+      "inherits": "hikari-module-base",
+      "binaryDir": "${sourceDir}/Library/Build/CMake/debug",
+      "cacheVariables": {
+        "CMAKE_CONFIGURATION_TYPES": "Debug"
+      }
+    },
+    {
+      "name": "editor-release",
+      "displayName": "HIKARI Module Editor Release",
+      "inherits": "hikari-module-base",
+      "binaryDir": "${sourceDir}/Library/Build/CMake/editor-release",
+      "cacheVariables": {
+        "CMAKE_CONFIGURATION_TYPES": "EditorRelease"
+      }
+    },
+    {
+      "name": "game-shipping",
+      "displayName": "HIKARI Module Shipping",
+      "inherits": "hikari-module-base",
+      "binaryDir": "${sourceDir}/Library/Build/CMake/game-shipping",
+      "cacheVariables": {
+        "CMAKE_CONFIGURATION_TYPES": "Shipping"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "debug",
+      "configurePreset": "debug",
+      "configuration": "Debug"
+    },
+    {
+      "name": "editor-release",
+      "configurePreset": "editor-release",
+      "configuration": "EditorRelease"
+    },
+    {
+      "name": "game-shipping",
+      "configurePreset": "game-shipping",
+      "configuration": "Shipping"
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "editor-release",
+      "configurePreset": "editor-release",
+      "configuration": "EditorRelease",
+      "output": {
+        "outputOnFailure": true
+      }
+    }
+  ]
+}

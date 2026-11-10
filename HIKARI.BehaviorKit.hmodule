@@ -1,0 +1,8 @@
+{
+  "formatVersion": 1,
+  "id": "HIKARI.BehaviorKit",
+  "name": "Behavior Kit",
+  "version": "0.1.0",
+  "editorDirectories": ["Public"],
+  "dependencies": []
+}
