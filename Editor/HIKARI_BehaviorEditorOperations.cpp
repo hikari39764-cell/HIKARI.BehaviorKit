@@ -527,11 +527,12 @@ private:
             [this](const Json& parameters) {
                 OpenTree& tree = TreeOf(parameters);
                 const uint32_t node = NodeOf(tree, parameters, "node").id;
+                // 条件を先に確かめる（断った時は断点を変えない）。
+                const std::string when = parameters.value("when", std::string("start"));
+                Require(when == "start" || when == "success" || when == "failure",
+                        "when must be start, success or failure.");
                 editor_->SetBreakpoint(tree.guid, node, parameters.value("enabled", true));
                 if (TreeEditor::Breakpoint* breakpoint = editor_->FindBreakpoint(tree.guid, node)) {
-                    const std::string when = parameters.value("when", std::string("start"));
-                    Require(when == "start" || when == "success" || when == "failure",
-                            "when must be start, success or failure.");
                     breakpoint->when = when == "success"   ? TreeEditor::BreakWhen::Success
                                        : when == "failure" ? TreeEditor::BreakWhen::Failure
                                                            : TreeEditor::BreakWhen::Start;
